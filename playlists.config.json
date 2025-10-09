@@ -1,0 +1,75 @@
+{
+  "$schema": "./playlists.config.schema.json",
+  "genrePlaylists": {
+    "pinned": [
+      {
+        "name": "synthwave",
+        "genre": "synthwave",
+        "cron": "0 7 * * 1",
+        "enabled": true,
+        "description": "Synthwave hits from the 80s future"
+      },
+      {
+        "name": "vaporwave",
+        "genre": "vaporwave",
+        "cron": "0 8 * * 1",
+        "enabled": true,
+        "description": "Nostalgic vaporwave aesthetics"
+      },
+      {
+        "name": "chillwave",
+        "genre": "chillwave",
+        "cron": "0 9 * * 1",
+        "enabled": true,
+        "description": "Relaxing chillwave vibes"
+      },
+      {
+        "name": "darkwave",
+        "genre": "darkwave",
+        "cron": "0 10 * * 1",
+        "enabled": true,
+        "description": "Dark electronic soundscapes"
+      },
+      {
+        "name": "techno",
+        "genre": "techno",
+        "cron": "0 11 * * 1",
+        "enabled": true,
+        "description": "Driving techno beats"
+      },
+      {
+        "name": "psytrance",
+        "genre": "psytrance",
+        "cron": "0 12 * * 1",
+        "enabled": true,
+        "description": "Psychedelic trance journeys"
+      },
+      {
+        "name": "dubstep",
+        "genre": "dubstep",
+        "cron": "0 13 * * 1",
+        "enabled": true,
+        "description": "Heavy dubstep drops"
+      },
+      {
+        "name": "trance",
+        "genre": "trance",
+        "cron": "0 14 * * 1",
+        "enabled": true,
+        "description": "Uplifting trance anthems"
+      }
+    ],
+    "autoDiscover": {
+      "enabled": true,
+      "minArtists": 5,
+      "maxPlaylists": 20,
+      "exclude": [
+        "electronic",
+        "edm",
+        "electronica"
+      ],
+      "schedule": "0 15 * * 1",
+      "description": "Auto-discovered genre playlists based on library analysis"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Build outputs
+dist/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Development files
+*.log
+coverage/
+.DS_Store
+
+# Database
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+test/
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+
+
+.venv

@@ -1,0 +1,49 @@
+services:
+  plex-playlists:
+    build: .
+    container_name: plex-playlists
+    restart: unless-stopped
+    environment:
+      # Required: Plex server configuration
+      - PLEX_BASE_URL=http://localhost:32400
+      - PLEX_AUTH_TOKEN=your-plex-token-here
+
+      # Data paths (config folder contains database, .env, and imported playlists)
+      - DATABASE_PATH=/config/plex-playlists.db
+
+      # Timezone for cron schedules
+      - TZ=America/New_York  # Adjust to your timezone
+
+      # Optional: Uncomment and configure for genre enrichment
+      # - LASTFM_API_KEY=your-lastfm-api-key
+      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
+      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
+
+      # Optional: Customize scheduling (defaults shown)
+      # - MORNING_CRON=0 6 * * *
+      # - AFTERNOON_CRON=0 12 * * *
+      # - EVENING_CRON=0 18 * * *
+
+      # Optional: Customize playlist generation (defaults shown)
+      # - PLAYLIST_TARGET_SIZE=50
+      # - MAX_PER_ARTIST=2
+      # - HALF_LIFE_DAYS=7
+      # - MAX_GENRE_SHARE=0.4
+    volumes:
+      # Config folder: stores database, .env overrides, and imported playlists
+      - ./config:/config
+    # Uncomment to run a one-time playlist generation instead of scheduler
+    # command: ["node", "dist/cli.js", "run", "morning"]
+
+    # Network mode host allows direct connection to Plex on localhost
+    # Change to bridge if Plex is accessible via network
+    network_mode: host
+
+    # Healthcheck (verifies database and scheduler activity)
+    # Note: Docker Compose healthcheck overrides Dockerfile HEALTHCHECK
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
