@@ -59,9 +59,9 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
           All steps below are <strong>optional</strong> but highly recommended for the best experience.
         </p>
 
-        <div style="background: var(--pico-primary); padding: 1rem; border-radius: 0.5rem; margin-bottom: 2rem;">
+        <div style="background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; margin-bottom: 2rem; border-left: 4px solid var(--pico-primary);">
           <p style="margin: 0; font-size: 0.875rem;">
-            💡 <strong>Quick Summary:</strong> The system can work with just Plex data, but adding API keys and warming the cache will give you much better genre-based playlists and filtering.
+            💡 <strong>Recommended Flow:</strong> Start by analyzing your Plex library to see available genres, then optionally add API keys for enhanced metadata.
           </p>
         </div>
 
@@ -87,77 +87,55 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
           </details>
         )}
 
-        {/* Cache Status */}
+        {/* Step 1: Analyze Plex Library */}
         <details open style="margin-bottom: 2rem;">
-          <summary style="cursor: pointer;"><strong>💾 Genre Cache Status</strong></summary>
+          <summary style="cursor: pointer;"><strong>1️⃣ Analyze Your Plex Library</strong></summary>
           <div style="padding: 1rem; background: var(--pico-background-color); border-radius: 0.25rem; margin-top: 0.5rem;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
-              <div>
-                <div style="font-size: 1.5rem; font-weight: 600;">{cacheStats.total}</div>
-                <div style="color: var(--pico-muted-color); font-size: 0.875rem;">Total Cached</div>
-              </div>
-              {Object.entries(cacheStats.bySource).map(([source, count]) => (
-                <div>
-                  <div style="font-size: 1.5rem; font-weight: 600;">{count}</div>
-                  <div style="color: var(--pico-muted-color); font-size: 0.875rem;">{source}</div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              id="warmCacheBtn"
-              class="secondary"
-              style="width: 100%;"
-              onclick="warmCache()"
-            >
-              🔥 Warm Cache Now
-            </button>
-            <div id="cache-status" style="margin-top: 0.5rem;"></div>
-            <p style="margin: 1rem 0 0 0; font-size: 0.875rem; color: var(--pico-muted-color);">
-              Genre cache improves playlist quality by fetching metadata from Spotify and Last.fm. This is optional but recommended.
+            <p style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--pico-muted-color);">
+              Start by pulling genre data from your Plex library to see what's available. This uses Plex's built-in genre tags.
             </p>
+            <button
+              id="analyzeLibraryBtn"
+              style="width: 100%;"
+              onclick="analyzeLibrary()"
+            >
+              🔍 Analyze Library & Pull Genres
+            </button>
+            <div id="analyze-status" style="margin-top: 0.5rem;"></div>
+
+            {/* Show genres if we have them */}
+            {topGenres && topGenres.length > 0 && (
+              <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--pico-muted-border-color);">
+                <h4 style="margin: 0 0 1rem 0; font-size: 0.9375rem;">Genres Found ({totalGenres} total)</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                  {topGenres.map(g => {
+                    const fontSize = 0.75 + (g.count / topGenres[0].count) * 0.5;
+                    return (
+                      <span style={`font-size: ${fontSize}rem; padding: 0.25rem 0.5rem; background: var(--pico-card-background-color); border-radius: 0.25rem; border: 1px solid var(--pico-muted-border-color);`}>
+                        {g.genre} <small style="color: var(--pico-muted-color);">({g.count})</small>
+                      </span>
+                    );
+                  })}
+                </div>
+                {totalGenres > 30 && (
+                  <p style="margin-top: 1rem; margin-bottom: 0; font-size: 0.875rem; color: var(--pico-muted-color);">
+                    Showing top 30 of {totalGenres} genres
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </details>
 
-        {/* Genre Discovery */}
-        {topGenres && topGenres.length > 0 ? (
-          <details open style="margin-bottom: 2rem;">
-            <summary style="cursor: pointer;"><strong>🎵 Genre Discovery ({totalGenres} genres found)</strong></summary>
-            <div style="padding: 1rem; background: var(--pico-background-color); border-radius: 0.25rem; margin-top: 0.5rem;">
-              <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                {topGenres.map(g => {
-                  const fontSize = 0.75 + (g.count / topGenres[0].count) * 0.5;
-                  return (
-                    <span style={`font-size: ${fontSize}rem; padding: 0.25rem 0.5rem; background: var(--pico-card-background-color); border-radius: 0.25rem; border: 1px solid var(--pico-muted-border-color);`}>
-                      {g.genre} <small style="color: var(--pico-muted-color);">({g.count})</small>
-                    </span>
-                  );
-                })}
-              </div>
-              {totalGenres > 30 && (
-                <p style="margin-top: 1rem; margin-bottom: 0; font-size: 0.875rem; color: var(--pico-muted-color);">
-                  Showing top 30 of {totalGenres} genres
-                </p>
-              )}
-            </div>
-          </details>
-        ) : (
-          <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.25rem; margin-bottom: 2rem;">
-            <p style="margin: 0; color: var(--pico-muted-color);">
-              ⚠️ No genres found yet. Add API keys below and warm the cache to discover genres.
-            </p>
-          </div>
-        )}
-
-        {/* API Keys Configuration */}
-        <details {...(!apiKeysConfigured.lastfm && !apiKeysConfigured.spotify ? { open: true } : {})} style="margin-bottom: 2rem;">
-          <summary style="cursor: pointer;"><strong>🔑 API Keys (Optional but Recommended)</strong></summary>
+        {/* Step 2: API Keys (Optional Enhancement) */}
+        <details {...(totalGenres === 0 || (!apiKeysConfigured.lastfm && !apiKeysConfigured.spotify) ? { open: true } : {})} style="margin-bottom: 2rem;">
+          <summary style="cursor: pointer;"><strong>2️⃣ Add API Keys (Optional Enhancement)</strong></summary>
           <div style="padding: 1rem; background: var(--pico-background-color); border-radius: 0.25rem; margin-top: 0.5rem;">
             <p style="margin: 0 0 1rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-              Add API keys for enhanced genre metadata. This significantly improves playlist quality.
+              Enhance genre metadata by adding Spotify and/or Last.fm API keys.
               Setup guides:
-              {' '}<a href="https://github.com/aceofaces/plex-playlists/blob/main/LASTFM_SETUP.md" target="_blank">Last.fm</a> •
-              {' '}<a href="https://github.com/aceofaces/plex-playlists/blob/main/SPOTIFY_SETUP.md" target="_blank">Spotify</a>
+              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/lastfm-setup.md" target="_blank">Last.fm</a> •
+              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/spotify-setup.md" target="_blank">Spotify</a>
             </p>
 
             <form id="apiKeysForm" hx-post="/config/environment/save-api-keys" hx-swap="innerHTML" hx-target="#api-save-response">
@@ -216,42 +194,95 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
       </div>
 
       <script>{`
-// Cache warming function
-async function warmCache() {
-  const btn = document.getElementById('warmCacheBtn');
-  const status = document.getElementById('cache-status');
+// Analyze library function - pulls genres from Plex
+async function analyzeLibrary() {
+  const btn = document.getElementById('analyzeLibraryBtn');
+  const status = document.getElementById('analyze-status');
   const originalText = btn.innerHTML;
 
   btn.disabled = true;
   btn.innerHTML = '⏳ Starting...';
-  status.innerHTML = '<p style="color: var(--pico-muted-color); margin: 0;">Warming cache for all artists in your library...</p>';
+  status.innerHTML = '<p style="color: var(--pico-muted-color); margin: 0;">🔄 Connecting to Plex server...</p>';
+
+  let lastUpdate = Date.now();
+  let updateInterval = null;
 
   try {
     const response = await fetch('/actions/cache/warm', { method: 'POST' });
     const data = await response.json();
 
     if (response.ok) {
-      btn.innerHTML = '✓ Started';
-      status.innerHTML = '<p style="color: var(--pico-ins-color); margin: 0;">✓ Cache warming started! This may take several minutes.</p>';
+      btn.innerHTML = '⏳ Analyzing...';
+      status.innerHTML = \`
+        <div style="background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--pico-primary);">
+          <p style="margin: 0 0 0.5rem 0; font-weight: 600;">✓ Analysis started!</p>
+          <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Scanning your Plex library...</p>
+          <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--pico-muted-border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span id="progress-text" style="font-size: 0.875rem;">Preparing...</span>
+              <span id="progress-percent" style="font-weight: 600;">0%</span>
+            </div>
+            <progress id="progress-bar" value="0" max="100" style="width: 100%; margin-top: 0.5rem;"></progress>
+            <p id="progress-time" style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--pico-muted-color);">Just started...</p>
+          </div>
+        </div>
+      \`;
 
       // Start monitoring via SSE if jobId is available
       if (data.jobId) {
         const eventSource = new EventSource(\`/actions/jobs/\${data.jobId}/stream\`);
 
+        // Update "last activity" timer
+        updateInterval = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - lastUpdate) / 1000);
+          const timeEl = document.getElementById('progress-time');
+          if (timeEl && elapsed > 5) {
+            timeEl.textContent = \`Last update: \${elapsed}s ago (still running...)\`;
+            timeEl.style.color = elapsed > 30 ? 'var(--pico-del-color)' : 'var(--pico-muted-color)';
+          }
+        }, 1000);
+
         eventSource.onmessage = (event) => {
           const job = JSON.parse(event.data);
+          lastUpdate = Date.now();
 
-          if (job.progress !== undefined) {
-            status.innerHTML = \`<p style="color: var(--pico-primary); margin: 0;">⏳ Progress: \${job.progress}%</p>\`;
+          const progressBar = document.getElementById('progress-bar');
+          const progressPercent = document.getElementById('progress-percent');
+          const progressText = document.getElementById('progress-text');
+          const progressTime = document.getElementById('progress-time');
+
+          // Handle progress updates
+          if (job.progress) {
+            if (progressBar) progressBar.value = job.progress.percent || 0;
+            if (progressPercent) progressPercent.textContent = \`\${Math.round(job.progress.percent || 0)}%\`;
+            if (progressText) {
+              progressText.textContent = job.progress.message || 'Processing...';
+            }
+            if (progressTime) {
+              const eta = job.progress.eta || 'calculating...';
+              progressTime.textContent = \`ETA: \${eta}\`;
+              progressTime.style.color = 'var(--pico-muted-color)';
+            }
+          } else if (job.status === 'running') {
+            if (progressText) progressText.textContent = 'Scanning library...';
           }
 
+          // Handle completion
           if (job.status !== 'running') {
+            clearInterval(updateInterval);
             eventSource.close();
+
             if (job.status === 'success') {
-              status.innerHTML = '<p style="color: var(--pico-ins-color); margin: 0;">✓ Cache warming complete! Reloading...</p>';
-              setTimeout(() => window.location.reload(), 2000);
-            } else {
-              status.innerHTML = '<p style="color: var(--pico-del-color); margin: 0;">✗ Cache warming failed</p>';
+              status.innerHTML = '<p style="color: var(--pico-ins-color); margin: 0;">✓ Analysis complete! Reloading...</p>';
+              setTimeout(() => window.location.reload(), 1500);
+            } else if (job.status === 'failed') {
+              const errorMsg = job.error || 'Analysis failed';
+              status.innerHTML = \`
+                <div style="background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--pico-del-color);">
+                  <p style="margin: 0 0 0.5rem 0; color: var(--pico-del-color); font-weight: 600;">✗ Analysis Failed</p>
+                  <p style="margin: 0; font-size: 0.875rem; color: var(--pico-muted-color);">\${errorMsg}</p>
+                </div>
+              \`;
               btn.disabled = false;
               btn.innerHTML = originalText;
             }
@@ -260,20 +291,30 @@ async function warmCache() {
 
         eventSource.onerror = () => {
           console.error('SSE connection error');
+          clearInterval(updateInterval);
           eventSource.close();
+          status.innerHTML = \`
+            <div style="background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--pico-del-color);">
+              <p style="margin: 0 0 0.5rem 0; color: var(--pico-del-color); font-weight: 600;">✗ Connection Lost</p>
+              <p style="margin: 0; font-size: 0.875rem; color: var(--pico-muted-color);">Lost connection to server. The analysis may still be running in the background. Try refreshing the page in a moment.</p>
+            </div>
+          \`;
+          btn.disabled = false;
+          btn.innerHTML = originalText;
         };
       }
     } else {
-      throw new Error(data.error || 'Failed to start cache warming');
+      throw new Error(data.error || 'Failed to start analysis');
     }
   } catch (err) {
+    clearInterval(updateInterval);
     btn.innerHTML = '✗ Failed';
     btn.disabled = false;
     status.innerHTML = \`<p style="color: var(--pico-del-color); margin: 0;">✗ \${err.message}</p>\`;
     setTimeout(() => {
       btn.innerHTML = originalText;
       status.innerHTML = '';
-    }, 3000);
+    }, 5000);
   }
 }
 

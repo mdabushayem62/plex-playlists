@@ -77,7 +77,7 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
           <h2>Playlists</h2>
-          <a href="/actions" role="button" class="secondary">Generate New Playlist</a>
+          <a href="/playlists/builder" role="button" class="secondary">🎨 Create Custom Playlist</a>
         </div>
 
         {playlists.length === 0 ? (
@@ -85,7 +85,7 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
             <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
               No playlists generated yet.
             </p>
-            <a href="/actions" role="button">Generate Your First Playlist</a>
+            <a href="/playlists/builder" role="button">🎨 Create Your First Playlist</a>
           </div>
         ) : (
           <>

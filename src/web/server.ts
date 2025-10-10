@@ -13,6 +13,7 @@ import { setupRouter } from './routes/setup.js';
 import { actionsRouter } from './routes/actions.js';
 import { configRouter } from './routes/config.js';
 import { playlistsRouter } from './routes/playlists.js';
+import { analyticsRouter } from './routes/analytics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +64,7 @@ export function createWebServer(config: WebServerConfig) {
   app.use('/', dashboardRouter);
   app.use('/setup', setupRouter);
   app.use('/actions', actionsRouter);
+  app.use('/analytics', analyticsRouter);
   app.use('/config', configRouter);
   app.use('/playlists', playlistsRouter);
 

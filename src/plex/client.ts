@@ -1,7 +1,8 @@
 import { PlexServer } from '@ctrl/plex';
 
-import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
+import { getEffectiveConfig } from '../db/settings-service.js';
+import { APP_ENV } from '../config.js';
 
 let plexServer: PlexServer | null = null;
 
@@ -10,9 +11,16 @@ export const getPlexServer = async (): Promise<PlexServer> => {
     return plexServer;
   }
 
-  const server = new PlexServer(APP_ENV.PLEX_BASE_URL, APP_ENV.PLEX_AUTH_TOKEN);
+  // Use database settings (with env var fallback)
+  const config = await getEffectiveConfig();
+
+  if (!config.plexBaseUrl || !config.plexAuthToken) {
+    throw new Error('Plex credentials not configured. Please configure via web UI at /setup');
+  }
+
+  const server = new PlexServer(config.plexBaseUrl, config.plexAuthToken, APP_ENV.PLEX_TIMEOUT);
   await server.connect();
-  logger.debug({ baseUrl: APP_ENV.PLEX_BASE_URL }, 'connected to plex server');
+  logger.debug({ baseUrl: config.plexBaseUrl, timeout: APP_ENV.PLEX_TIMEOUT }, 'connected to plex server');
   plexServer = server;
   return plexServer;
 };

@@ -30,6 +30,7 @@ describe('Database Migrations Integration', () => {
 
     expect(tableNames).toEqual([
       'album_genre_cache',
+      'custom_playlists',
       'genre_cache',
       'job_runs',
       'playlist_tracks',

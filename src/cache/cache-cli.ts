@@ -9,6 +9,11 @@ import { recordJobStart, recordJobCompletion } from '../db/repository.js';
 import { formatUserError } from '../utils/error-formatter.js';
 import { progressTracker } from '../utils/progress-tracker.js';
 
+// Type for Plex metadata tag (Genre, Style, Mood)
+interface PlexTag {
+  tag: string;
+}
+
 interface CacheStats {
   artists: {
     totalEntries: number;
@@ -296,9 +301,10 @@ export async function warmCache(options: {
   dryRun?: boolean;
   onProgress?: (completed: number, total: number) => void;
   skipCached?: boolean;
+  jobId?: number; // Optional job ID to use for tracking (if not provided, creates new one)
 } = {}): Promise<{ totalArtists: number; cached: number; errors: string[] }> {
-  const { concurrency = 10, dryRun = false, onProgress, skipCached = true } = options;
-  const jobId = await recordJobStart('cache-warm');
+  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId } = options;
+  const jobId = providedJobId ?? await recordJobStart('cache-warm');
 
   try {
     logger.info({ concurrency, dryRun, skipCached }, 'starting artist cache warm');
@@ -332,13 +338,107 @@ export async function warmCache(options: {
       return { totalArtists: artistNames.length, cached: 0, errors: [] };
     }
 
+    // Fetch full metadata for each artist to get Genre + Style + Mood
+    // Use high concurrency since local Plex is fast (~4 seconds for 1138 artists)
+    const plexGenreMap = new Map<string, string[]>();
+    const plexMoodMap = new Map<string, string[]>();
+    const server = await getPlexServer();
+
+    logger.info({ totalArtists: artists.length }, 'fetching full metadata for all artists (Genre + Style + Mood)');
+
+    // Use dynamic import for p-limit
+    const pLimit = (await import('p-limit')).default;
+    const metadataConcurrency = 100; // Performance tests showed 100 is optimal (~4 seconds for all artists)
+    const limit = pLimit(metadataConcurrency);
+
+    let metadataCompleted = 0;
+    const metadataStart = Date.now();
+
+    const metadataTasks = artists
+      .filter(artist => artist.type === 'artist' && artist.title && artist.ratingKey)
+      .map(artist =>
+        limit(async () => {
+          try {
+            // Fetch full metadata including Style and Mood
+            const fullMetadata = await server.query(`/library/metadata/${artist.ratingKey}`);
+            const metadata = fullMetadata?.MediaContainer?.Metadata?.[0];
+
+            if (metadata) {
+              // Separate Genre + Style from Mood for semantic clarity
+              const genres: string[] = [
+                ...(metadata.Genre?.map((g: PlexTag) => g.tag.toLowerCase()) || []),
+                ...(metadata.Style?.map((s: PlexTag) => s.tag.toLowerCase()) || [])
+              ].filter(Boolean);
+
+              const moods: string[] =
+                (metadata.Mood?.map((m: PlexTag) => m.tag.toLowerCase()) || []).filter(Boolean);
+
+              const normalizedName = artist.title!.toLowerCase();
+              plexGenreMap.set(normalizedName, genres);
+              plexMoodMap.set(normalizedName, moods);
+            }
+
+            metadataCompleted++;
+
+            // Log progress every 100 artists
+            if (metadataCompleted % 100 === 0) {
+              const elapsed = (Date.now() - metadataStart) / 1000;
+              const rate = metadataCompleted / elapsed;
+              const remaining = artists.length - metadataCompleted;
+              const eta = remaining / rate;
+              logger.info(
+                {
+                  completed: metadataCompleted,
+                  total: artists.length,
+                  rate: `${rate.toFixed(1)}/s`,
+                  eta: `${eta.toFixed(0)}s`
+                },
+                'fetching artist metadata'
+              );
+            }
+          } catch (error) {
+            logger.warn({ artistName: artist.title, error }, 'failed to fetch full metadata for artist');
+          }
+        })
+      );
+
+    await Promise.all(metadataTasks);
+
+    const metadataElapsed = (Date.now() - metadataStart) / 1000;
+
+    const avgGenresPerArtist = (
+      Array.from(plexGenreMap.values()).reduce((sum, genres) => sum + genres.length, 0) /
+      plexGenreMap.size
+    ).toFixed(1);
+    const avgMoodsPerArtist = (
+      Array.from(plexMoodMap.values()).reduce((sum, moods) => sum + moods.length, 0) /
+      plexMoodMap.size
+    ).toFixed(1);
+
+    logger.info(
+      {
+        totalArtists: plexGenreMap.size,
+        withGenres: Array.from(plexGenreMap.values()).filter((g) => g.length > 0).length,
+        withMoods: Array.from(plexMoodMap.values()).filter((m) => m.length > 0).length,
+        avgGenresPerArtist,
+        avgMoodsPerArtist,
+        elapsed: `${metadataElapsed.toFixed(1)}s`
+      },
+      'fetched full Plex metadata (separated Genre+Style and Mood)'
+    );
+
     // Use the bulk fetch method with concurrency
     const enrichmentService = getGenreEnrichmentService();
+
+    // Populate Plex genres and moods in enrichment service
+    enrichmentService.setPlexGenres(plexGenreMap);
+    enrichmentService.setPlexMoods(plexMoodMap);
+
     const errors: string[] = [];
 
-    // Start progress tracking
+    // Start progress tracking with source tracking enabled
     if (jobId) {
-      progressTracker.startTracking(jobId, artistNames.length, 'Warming artist cache');
+      progressTracker.startTracking(jobId, artistNames.length, 'Warming artist cache', true);
     }
 
     try {
@@ -357,6 +457,12 @@ export async function warmCache(options: {
           if (onProgress) {
             onProgress(completed, total);
           }
+        },
+        onSourceUsed: (source) => {
+          // Track which source was used for real-time breakdown
+          if (jobId) {
+            progressTracker.incrementSource(jobId, source);
+          }
         }
       });
 
@@ -366,6 +472,10 @@ export async function warmCache(options: {
         await progressTracker.stopTracking(jobId);
         await recordJobCompletion(jobId, 'success');
       }
+
+      // Clear Plex genre and mood cache to free memory
+      enrichmentService.clearPlexGenres();
+      enrichmentService.clearPlexMoods();
 
       return {
         totalArtists: artistNames.length,
@@ -381,6 +491,10 @@ export async function warmCache(options: {
         await progressTracker.stopTracking(jobId);
         await recordJobCompletion(jobId, 'failed', errorMsg);
       }
+
+      // Clear Plex genre and mood cache even on error
+      enrichmentService.clearPlexGenres();
+      enrichmentService.clearPlexMoods();
 
       return {
         totalArtists: artistNames.length,
@@ -399,8 +513,8 @@ export async function warmCache(options: {
  * Filter out albums that already have valid cache entries
  */
 async function filterUncachedAlbums(
-  albums: Array<{ artist: string; album: string }>
-): Promise<Array<{ artist: string; album: string }>> {
+  albums: Array<{ artist: string; album: string; ratingKey: string }>
+): Promise<Array<{ artist: string; album: string; ratingKey: string }>> {
   if (albums.length === 0) {
     return [];
   }
@@ -409,7 +523,7 @@ async function filterUncachedAlbums(
   const now = new Date();
 
   // Build a map of normalized names to originals
-  const albumMap = new Map<string, { artist: string; album: string }>();
+  const albumMap = new Map<string, { artist: string; album: string; ratingKey: string }>();
   albums.forEach(item => {
     const key = `${item.artist.toLowerCase()}|${item.album.toLowerCase()}`;
     albumMap.set(key, item);
@@ -465,9 +579,10 @@ export async function warmAlbumCache(options: {
   dryRun?: boolean;
   onProgress?: (completed: number, total: number) => void;
   skipCached?: boolean;
+  jobId?: number; // Optional job ID to use for tracking (if not provided, creates new one)
 } = {}): Promise<{ totalAlbums: number; cached: number; errors: string[] }> {
-  const { concurrency = 10, dryRun = false, onProgress, skipCached = true } = options;
-  const jobId = await recordJobStart('album-cache-warm');
+  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId } = options;
+  const jobId = providedJobId ?? await recordJobStart('album-cache-warm');
 
   try {
     logger.info({ concurrency, dryRun, skipCached }, 'starting album cache warm');
@@ -477,33 +592,34 @@ export async function warmAlbumCache(options: {
 
     logger.info('fetching all tracks to extract unique albums');
 
-    // Fetch all tracks and extract unique album/artist pairs
+    // Fetch all tracks and extract unique albums with their rating keys
     // This is more reliable than trying to get albums directly
     const allTracks = await musicSection.searchTracks({ limit: 999999 });
 
     logger.info({ totalTracks: allTracks.length }, 'tracks fetched, extracting unique albums');
 
-    // Use a Set to deduplicate albums by "artist|album" key
-    const albumSet = new Set<string>();
-    let albumPairs: Array<{ artist: string; album: string }> = [];
+    // Use a Map to deduplicate albums and capture their ratingKeys
+    const albumMap = new Map<string, { artist: string; album: string; ratingKey: string }>();
 
     for (const track of allTracks) {
       const artistName = track.grandparentTitle; // Artist
       const albumName = track.parentTitle; // Album
+      const albumRatingKey = track.parentRatingKey; // Album's rating key
 
-      if (artistName && albumName) {
+      if (artistName && albumName && albumRatingKey) {
         const key = `${artistName.toLowerCase()}|${albumName.toLowerCase()}`;
 
-        if (!albumSet.has(key)) {
-          albumSet.add(key);
-          albumPairs.push({
+        if (!albumMap.has(key)) {
+          albumMap.set(key, {
             artist: artistName,
-            album: albumName
+            album: albumName,
+            ratingKey: String(albumRatingKey)
           });
         }
       }
     }
 
+    let albumPairs = Array.from(albumMap.values());
     const totalAlbums = albumPairs.length;
     logger.info({ totalAlbums }, 'unique albums extracted from tracks');
 
@@ -523,48 +639,154 @@ export async function warmAlbumCache(options: {
       return { totalAlbums: albumPairs.length, cached: 0, errors: [] };
     }
 
-    // Fetch genres for each album with concurrency control
-    const enrichmentService = getGenreEnrichmentService();
-    const errors: string[] = [];
-
-    // Start progress tracking
+    // Start progress tracking early (before metadata fetch)
+    // Total work: metadata fetch + caching
+    // We'll track total progress as 2x the albums (metadata + caching)
+    const totalSteps = albumPairs.length * 2;
     if (jobId) {
-      progressTracker.startTracking(jobId, albumPairs.length, 'Warming album cache');
+      progressTracker.startTracking(jobId, totalSteps, 'Warming album cache');
     }
+
+    // Fetch full metadata for each album to get Genre + Style + Mood from Plex
+    const server = await getPlexServer();
+    const plexAlbumGenreMap = new Map<string, string[]>();
+    const plexAlbumMoodMap = new Map<string, string[]>();
+
+    logger.info({ totalAlbums: albumPairs.length }, 'fetching full metadata for all albums (Genre + Style + Mood)');
 
     // Use dynamic import for p-limit
     const pLimit = (await import('p-limit')).default;
-    const limit = pLimit(concurrency);
+    const metadataConcurrency = 100; // Same high concurrency as artist cache
+    const limit = pLimit(metadataConcurrency);
 
-    let completed = 0;
-    const tasks = albumPairs.map(({ artist, album }) =>
+    let metadataCompleted = 0;
+    const metadataStart = Date.now();
+    const errors: string[] = [];
+
+    const metadataTasks = albumPairs.map(({ artist, album, ratingKey }) =>
       limit(async () => {
         try {
-          await enrichmentService.getGenresForAlbum(artist, album);
-          completed++;
+          // Fetch full metadata including Style and Mood
+          const fullMetadata = await server.query(`/library/metadata/${ratingKey}`);
+          const metadata = fullMetadata?.MediaContainer?.Metadata?.[0];
+
+          if (metadata) {
+            // Separate Genre + Style from Mood for semantic clarity
+            const genres: string[] = [
+              ...(metadata.Genre?.map((g: PlexTag) => g.tag.toLowerCase()) || []),
+              ...(metadata.Style?.map((s: PlexTag) => s.tag.toLowerCase()) || [])
+            ].filter(Boolean);
+
+            const moods: string[] =
+              (metadata.Mood?.map((m: PlexTag) => m.tag.toLowerCase()) || []).filter(Boolean);
+
+            const key = `${artist.toLowerCase()}|${album.toLowerCase()}`;
+            plexAlbumGenreMap.set(key, genres);
+            plexAlbumMoodMap.set(key, moods);
+          }
+
+          metadataCompleted++;
 
           // Update progress tracker
           if (jobId) {
+            progressTracker.updateProgress(
+              jobId,
+              metadataCompleted,
+              `Fetched metadata for ${metadataCompleted}/${albumPairs.length} albums`
+            );
+          }
+
+          // Log progress every 100 albums
+          if (metadataCompleted % 100 === 0) {
+            const elapsed = (Date.now() - metadataStart) / 1000;
+            const rate = metadataCompleted / elapsed;
+            const remaining = albumPairs.length - metadataCompleted;
+            const eta = remaining / rate;
+            logger.info(
+              {
+                completed: metadataCompleted,
+                total: albumPairs.length,
+                rate: `${rate.toFixed(1)}/s`,
+                eta: `${eta.toFixed(0)}s`
+              },
+              'fetching album metadata'
+            );
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          errors.push(`${artist} - ${album}: ${errorMsg}`);
+          logger.warn({ artist, album, error: errorMsg }, 'failed to fetch full album metadata');
+        }
+      })
+    );
+
+    await Promise.all(metadataTasks);
+
+    const metadataElapsed = (Date.now() - metadataStart) / 1000;
+
+    const avgGenresPerAlbum = plexAlbumGenreMap.size > 0
+      ? (Array.from(plexAlbumGenreMap.values()).reduce((sum, genres) => sum + genres.length, 0) / plexAlbumGenreMap.size).toFixed(1)
+      : '0.0';
+    const avgMoodsPerAlbum = plexAlbumMoodMap.size > 0
+      ? (Array.from(plexAlbumMoodMap.values()).reduce((sum, moods) => sum + moods.length, 0) / plexAlbumMoodMap.size).toFixed(1)
+      : '0.0';
+
+    logger.info(
+      {
+        totalAlbums: plexAlbumGenreMap.size,
+        withGenres: Array.from(plexAlbumGenreMap.values()).filter((g) => g.length > 0).length,
+        withMoods: Array.from(plexAlbumMoodMap.values()).filter((m) => m.length > 0).length,
+        avgGenresPerAlbum,
+        avgMoodsPerAlbum,
+        elapsed: `${metadataElapsed.toFixed(1)}s`
+      },
+      'fetched full Plex metadata (separated Genre+Style and Mood) for albums'
+    );
+
+    // Now store the albums in cache using enrichment service
+    const enrichmentService = getGenreEnrichmentService();
+
+    // Populate Plex album genres and moods in enrichment service
+    enrichmentService.setPlexAlbumGenres(plexAlbumGenreMap);
+    enrichmentService.setPlexAlbumMoods(plexAlbumMoodMap);
+
+    logger.info({ totalAlbums: albumPairs.length }, 'metadata fetch complete, starting cache write');
+
+    // Cache all albums
+    // Progress continues from albumPairs.length (metadata phase) to totalSteps (complete)
+    let cacheCompleted = 0;
+    const cacheTasks = albumPairs.map(({ artist, album }) =>
+      limit(async () => {
+        try {
+          await enrichmentService.getGenresForAlbum(artist, album);
+          cacheCompleted++;
+
+          // Update progress tracker (add albumPairs.length offset from metadata phase)
+          if (jobId) {
             await progressTracker.updateProgress(
               jobId,
-              completed,
-              `Cached ${completed}/${albumPairs.length} albums`
+              albumPairs.length + cacheCompleted,
+              `Cached ${cacheCompleted}/${albumPairs.length} albums`
             );
           }
 
           // Call user-provided callback if exists
           if (onProgress) {
-            onProgress(completed, albumPairs.length);
+            onProgress(cacheCompleted, albumPairs.length);
           }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           errors.push(`${artist} - ${album}: ${errorMsg}`);
-          logger.warn({ artist, album, error: errorMsg }, 'failed to fetch album genres');
+          logger.warn({ artist, album, error: errorMsg }, 'failed to cache album');
         }
       })
     );
 
-    await Promise.all(tasks);
+    await Promise.all(cacheTasks);
+
+    // Clear Plex album genre and mood cache to free memory
+    enrichmentService.clearPlexAlbumGenres();
+    enrichmentService.clearPlexAlbumMoods();
 
     logger.info(
       { totalAlbums: albumPairs.length, errors: errors.length },

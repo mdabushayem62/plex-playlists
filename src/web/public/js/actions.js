@@ -122,141 +122,43 @@ function setupPlaylistFormHandlers() {
 
 /**
  * Cache warming function with progress tracking
+ * Uses shared job-monitor module
  */
 async function warmCache() {
-  const btn = document.getElementById('warmCacheBtn');
-  const progressContainer = document.getElementById('artist-cache-progress');
-  const progressBar = document.getElementById('artist-cache-progress-bar');
-  const progressPercent = document.getElementById('artist-cache-progress-percent');
-  const progressMessage = document.getElementById('artist-cache-progress-message');
-  const progressEta = document.getElementById('artist-cache-progress-eta');
-  const originalText = btn.innerHTML;
-
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Starting...';
+  const elements = {
+    button: document.getElementById('warmCacheBtn'),
+    progressContainer: document.getElementById('artist-cache-progress'),
+    progressBar: document.getElementById('artist-cache-progress-bar'),
+    progressPercent: document.getElementById('artist-cache-progress-percent'),
+    progressMessage: document.getElementById('artist-cache-progress-message'),
+    progressEta: document.getElementById('artist-cache-progress-eta')
+  };
 
   try {
-    const response = await fetch('/actions/cache/warm', { method: 'POST' });
-    const data = await response.json();
-
-    if (response.ok) {
-      // Show progress bar
-      progressContainer.style.display = 'block';
-      btn.innerHTML = '🔄 Warming...';
-
-      // Connect to SSE endpoint for progress updates
-      const eventSource = new EventSource(`/actions/jobs/${data.jobId}/stream`);
-
-      eventSource.addEventListener('progress', (event) => {
-        const progress = JSON.parse(event.data);
-        progressBar.value = progress.percent;
-        progressPercent.textContent = progress.percent + '%';
-        progressMessage.textContent = progress.message;
-        progressEta.textContent = progress.eta ? `ETA: ${progress.eta}` : 'calculating...';
-      });
-
-      eventSource.addEventListener('status', (event) => {
-        const status = JSON.parse(event.data);
-        if (status.status !== 'running') {
-          eventSource.close();
-          if (status.status === 'success') {
-            progressMessage.textContent = '✓ Complete!';
-            progressEta.textContent = 'Done';
-            setTimeout(() => window.location.reload(), 2000);
-          } else if (status.status === 'failed') {
-            progressMessage.textContent = '✗ Failed: ' + (status.error || 'Unknown error');
-            progressEta.textContent = '';
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-          }
-        }
-      });
-
-      eventSource.onerror = () => {
-        eventSource.close();
-        progressMessage.textContent = '✗ Connection lost';
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-      };
-    } else {
-      throw new Error(data.error || 'Failed to start cache warming');
-    }
+    await window.jobMonitor.startCacheWarming('artist', elements);
   } catch (err) {
-    btn.innerHTML = '✗ Failed';
-    btn.disabled = false;
-    progressContainer.style.display = 'none';
     showToast('Failed to start cache warming: ' + err.message, 'error');
-    setTimeout(() => { btn.innerHTML = originalText; }, 3000);
   }
 }
 
 /**
  * Album cache warming function with progress tracking
+ * Uses shared job-monitor module
  */
 async function warmAlbumCache() {
-  const btn = document.getElementById('warmAlbumCacheBtn');
-  const progressContainer = document.getElementById('album-cache-progress');
-  const progressBar = document.getElementById('album-cache-progress-bar');
-  const progressPercent = document.getElementById('album-cache-progress-percent');
-  const progressMessage = document.getElementById('album-cache-progress-message');
-  const progressEta = document.getElementById('album-cache-progress-eta');
-  const originalText = btn.innerHTML;
-
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Starting...';
+  const elements = {
+    button: document.getElementById('warmAlbumCacheBtn'),
+    progressContainer: document.getElementById('album-cache-progress'),
+    progressBar: document.getElementById('album-cache-progress-bar'),
+    progressPercent: document.getElementById('album-cache-progress-percent'),
+    progressMessage: document.getElementById('album-cache-progress-message'),
+    progressEta: document.getElementById('album-cache-progress-eta')
+  };
 
   try {
-    const response = await fetch('/actions/cache/warm-albums', { method: 'POST' });
-    const data = await response.json();
-
-    if (response.ok) {
-      // Show progress bar
-      progressContainer.style.display = 'block';
-      btn.innerHTML = '🔄 Warming...';
-
-      // Connect to SSE endpoint for progress updates
-      const eventSource = new EventSource(`/actions/jobs/${data.jobId}/stream`);
-
-      eventSource.addEventListener('progress', (event) => {
-        const progress = JSON.parse(event.data);
-        progressBar.value = progress.percent;
-        progressPercent.textContent = progress.percent + '%';
-        progressMessage.textContent = progress.message;
-        progressEta.textContent = progress.eta ? `ETA: ${progress.eta}` : 'calculating...';
-      });
-
-      eventSource.addEventListener('status', (event) => {
-        const status = JSON.parse(event.data);
-        if (status.status !== 'running') {
-          eventSource.close();
-          if (status.status === 'success') {
-            progressMessage.textContent = '✓ Complete!';
-            progressEta.textContent = 'Done';
-            setTimeout(() => window.location.reload(), 2000);
-          } else if (status.status === 'failed') {
-            progressMessage.textContent = '✗ Failed: ' + (status.error || 'Unknown error');
-            progressEta.textContent = '';
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-          }
-        }
-      });
-
-      eventSource.onerror = () => {
-        eventSource.close();
-        progressMessage.textContent = '✗ Connection lost';
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-      };
-    } else {
-      throw new Error(data.error || 'Failed to start album cache warming');
-    }
+    await window.jobMonitor.startCacheWarming('album', elements);
   } catch (err) {
-    btn.innerHTML = '✗ Failed';
-    btn.disabled = false;
-    progressContainer.style.display = 'none';
     showToast('Failed to start album cache warming: ' + err.message, 'error');
-    setTimeout(() => { btn.innerHTML = originalText; }, 3000);
   }
 }
 

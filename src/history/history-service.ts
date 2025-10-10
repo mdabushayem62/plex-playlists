@@ -16,6 +16,37 @@ interface HistoryMetadatum {
   accountID: number;
 }
 
+// Cache for music library section ID (fetched once per session)
+let musicLibrarySectionId: string | null = null;
+
+const getMusicLibrarySectionId = async (): Promise<string | null> => {
+  if (musicLibrarySectionId) {
+    return musicLibrarySectionId;
+  }
+
+  try {
+    const server = await getPlexServer();
+    const library = await server.library();
+    const sections = await library.sections();
+    const musicSection = sections.find(s => s.CONTENT_TYPE === 'audio');
+
+    if (musicSection) {
+      musicLibrarySectionId = musicSection.key;
+      logger.debug(
+        { sectionId: musicLibrarySectionId, title: musicSection.title },
+        'found music library section'
+      );
+      return musicLibrarySectionId;
+    }
+
+    logger.warn('no music library section found');
+    return null;
+  } catch (error) {
+    logger.error({ error }, 'failed to get music library section');
+    return null;
+  }
+};
+
 export interface HistoryEntry {
   ratingKey: string;
   viewedAt: Date;
@@ -61,12 +92,82 @@ export const fetchHistoryForWindow = async (
   const timeWindowDef = getTimeWindowDefinition(window);
   const windowType = timeWindowDef ? 'time' : 'genre';
 
-  logger.debug({ window, mindate, maxresults, windowType }, 'fetching history slice');
-  const history = await server.history(maxresults, mindate);
+  // Get music library section ID for better filtering
+  const librarySectionId = await getMusicLibrarySectionId();
 
-  if (!history || !Array.isArray(history)) {
-    logger.warn({ history }, 'history response is not an array');
+  logger.debug(
+    { window, mindate, maxresults, windowType, librarySectionId },
+    'fetching history slice'
+  );
+
+  // Fetch history with library section filter
+  // NOTE: Using raw query instead of server.history() because the @ctrl/plex library
+  // doesn't properly pass the librarySectionId parameter to the API
+  let history: HistoryMetadatum[] = [];
+
+  if (librarySectionId) {
+    try {
+      const mindateTimestamp = Math.floor(mindate.getTime() / 1000);
+      const historyPath = `/status/sessions/history/all?mindate=${mindateTimestamp}&librarySectionID=${librarySectionId}&X-Plex-Container-Size=${maxresults}&X-Plex-Container-Start=0`;
+
+      const rawResponse = await server.query<{ MediaContainer: { Metadata: HistoryMetadatum[]; totalSize?: number } }>(historyPath, 'get');
+      const mediaContainer = rawResponse?.MediaContainer;
+
+      if (mediaContainer && Array.isArray(mediaContainer.Metadata)) {
+        history = mediaContainer.Metadata;
+      }
+
+      logger.debug(
+        {
+          totalSize: mediaContainer?.totalSize,
+          returnedSize: history.length
+        },
+        'fetched history via raw API (workaround for @ctrl/plex bug)'
+      );
+    } catch (error) {
+      logger.error({ error }, 'failed to fetch history via raw API, falling back to standard method');
+      // Fallback to standard method if raw query fails
+      history = await server.history(maxresults, mindate);
+    }
+  } else {
+    // No library section ID available, use standard method
+    history = await server.history(maxresults, mindate);
+  }
+
+  if (!Array.isArray(history)) {
+    logger.warn(
+      {
+        historyType: typeof history,
+        historyValue: history
+      },
+      'unexpected history response format'
+    );
     return [];
+  }
+
+  logger.debug(
+    {
+      rawHistoryCount: history.length,
+      dateRange: { from: mindate.toISOString(), to: new Date().toISOString() }
+    },
+    'received history from plex'
+  );
+
+  // Log type breakdown for debugging
+  if (history.length > 0) {
+    const typeCounts = history
+      .filter((item): item is HistoryMetadatum => item != null && typeof item === 'object')
+      .reduce((acc: Record<string, number>, item: HistoryMetadatum) => {
+        const type = item?.type || 'unknown';
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+    logger.debug({ typeCounts }, 'history entry types');
+  } else {
+    logger.warn(
+      { days, mindate, librarySectionId },
+      'no history entries found - verify Plex account is signed in and "Allow media deletion" is enabled in Plex library settings'
+    );
   }
 
   const filtered: HistoryEntry[] = [];
@@ -93,6 +194,16 @@ export const fetchHistoryForWindow = async (
     filtered.push({ ratingKey, viewedAt, accountId: item.accountID });
   }
 
-  logger.debug({ window, count: filtered.length }, 'history slice ready');
+  logger.debug(
+    {
+      window,
+      rawCount: history.length,
+      trackCount: history.filter((h: HistoryMetadatum) => h != null && h.type === 'track').length,
+      filteredCount: filtered.length,
+      windowFilterApplied: !!timeWindowDef
+    },
+    'history slice ready'
+  );
+
   return filtered;
 };

@@ -6,7 +6,6 @@ import { Router } from 'express';
 import { getDb } from '../../db/index.js';
 import { setupState, genreCache } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { getPlexServer } from '../../plex/client.js';
 import { APP_ENV } from '../../config.js';
 import { setSetting, getEffectiveConfig } from '../../db/settings-service.js';
 import { PlexServer } from '@ctrl/plex';
@@ -100,24 +99,29 @@ setupRouter.get('/', async (req, res) => {
     // Get effective configuration (DB overrides + env var fallbacks)
     const effectiveConfig = await getEffectiveConfig();
 
-    // Check Plex connection
+    // Check Plex connection using database settings (not cached client)
     let plexConnected = false;
     let plexServerInfo = null;
     let connectionError = null;
     try {
-      const server = await getPlexServer();
-      const response = await server.query('/');
-      plexConnected = true;
+      // Use database settings directly to test connection
+      if (effectiveConfig.plexBaseUrl && effectiveConfig.plexAuthToken) {
+        const testServer = new PlexServer(effectiveConfig.plexBaseUrl, effectiveConfig.plexAuthToken);
+        const response = await testServer.query('/');
+        plexConnected = true;
 
-      // The Plex API returns a nested MediaContainer object
-      // Access the actual data from response.MediaContainer
-      const mediaContainer = response.MediaContainer;
+        // The Plex API returns a nested MediaContainer object
+        // Access the actual data from response.MediaContainer
+        const mediaContainer = response.MediaContainer;
 
-      plexServerInfo = {
-        name: mediaContainer.friendlyName || 'Unknown',
-        version: mediaContainer.version || 'Unknown',
-        platform: mediaContainer.platform || 'Unknown'
-      };
+        plexServerInfo = {
+          name: mediaContainer.friendlyName || 'Unknown',
+          version: mediaContainer.version || 'Unknown',
+          platform: mediaContainer.platform || 'Unknown'
+        };
+      } else {
+        connectionError = 'Plex URL or token not configured';
+      }
     } catch (error) {
       // Plex not connected - capture error for display
       connectionError = error instanceof Error ? error.message : 'Unknown error';
@@ -162,6 +166,10 @@ setupRouter.post('/plex-config', async (req, res) => {
       await setSetting('plex_base_url', plexUrl);
       await setSetting('plex_auth_token', plexToken);
 
+      // Reset cached Plex client so it picks up new credentials
+      const { resetPlexServer } = await import('../../plex/client.js');
+      resetPlexServer();
+
       res.json({ success: true });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Connection failed';
@@ -187,12 +195,17 @@ setupRouter.get('/import', async (req, res) => {
   try {
     const state = await getSetupState();
 
-    res.render('setup/import', {
+    // Render TSX component
+    const { ImportPage } = await import(getViewPath('setup/import.tsx'));
+    const html = ImportPage({
       step: 'import',
       steps: SETUP_STEPS,
       currentStepIndex: 1,
       state
     });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } catch {
     res.status(500).send('Internal server error');
   }
@@ -382,137 +395,17 @@ setupRouter.get('/api-keys', async (req, res) => {
   res.redirect('/setup/library-analysis');
 });
 
-// Legacy route handlers (kept for POST requests if needed)
+// Legacy POST routes redirect to new flow
 setupRouter.post('/cache/next', async (req, res) => {
-  try {
-    const state = await getSetupState();
-    const db = getDb();
-
-    // Get current cache stats
-    const cacheEntries = await db.select().from(genreCache);
-    const cacheStats = {
-      total: cacheEntries.length,
-      bySource: cacheEntries.reduce((acc, entry) => {
-        acc[entry.source] = (acc[entry.source] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>)
-    };
-
-    // Get import results if available
-    let importResults = null;
-    if (state.stepData) {
-      try {
-        const stepData = JSON.parse(state.stepData);
-        importResults = stepData.importResults || null;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    res.render('setup/cache', {
-      step: 'cache',
-      steps: SETUP_STEPS,
-      currentStepIndex: 2,
-      state,
-      cacheStats,
-      importResults
-    });
-  } catch {
-    res.status(500).send('Internal server error');
-  }
+  res.redirect('/setup/library-analysis');
 });
 
-// Proceed to playlists step (legacy route - genres consolidated into library-analysis)
-setupRouter.post('/cache/next', async (req, res) => {
-  try {
-    await updateSetupState('playlists');
-    res.redirect('/setup/playlists');
-  } catch {
-    res.status(500).send('Internal server error');
-  }
-});
-
-// Step 4: Genre discovery
-setupRouter.get('/genres', async (req, res) => {
-  try {
-    const state = await getSetupState();
-    const db = getDb();
-
-    // Get genre statistics from cache
-    const cacheEntries = await db.select().from(genreCache);
-    const genreMap = new Map<string, number>();
-
-    cacheEntries.forEach(entry => {
-      try {
-        const genres = JSON.parse(entry.genres);
-        genres.forEach((genre: string) => {
-          genreMap.set(genre, (genreMap.get(genre) || 0) + 1);
-        });
-      } catch {
-        // Skip invalid JSON
-      }
-    });
-
-    // Sort by frequency
-    const topGenres = Array.from(genreMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 30)
-      .map(([genre, count]) => ({ genre, count }));
-
-    res.render('setup/genres', {
-      step: 'genres',
-      steps: SETUP_STEPS,
-      currentStepIndex: 3,
-      state,
-      topGenres,
-      totalGenres: genreMap.size
-    });
-  } catch {
-    res.status(500).send('Internal server error');
-  }
-});
-
-// Proceed to playlists step (legacy route - API keys consolidated into library-analysis)
 setupRouter.post('/genres/next', async (req, res) => {
-  try {
-    await updateSetupState('playlists');
-    res.redirect('/setup/playlists');
-  } catch {
-    res.status(500).send('Internal server error');
-  }
+  res.redirect('/setup/playlists');
 });
 
-// Step 5: API key configuration
-setupRouter.get('/api-keys', async (req, res) => {
-  try {
-    const state = await getSetupState();
-
-    // Check which API keys are configured
-    const apiKeysConfigured = {
-      lastfm: !!APP_ENV.LASTFM_API_KEY,
-      spotify: !!(APP_ENV.SPOTIFY_CLIENT_ID && APP_ENV.SPOTIFY_CLIENT_SECRET)
-    };
-
-    res.render('setup/api-keys', {
-      step: 'api_keys',
-      steps: SETUP_STEPS,
-      currentStepIndex: 4,
-      state,
-      apiKeysConfigured
-    });
-  } catch {
-    res.status(500).send('Internal server error');
-  }
-});
-
-// Proceed to playlists step
 setupRouter.post('/api-keys/next', async (req, res) => {
-  try {
-    await updateSetupState('playlists');
-    res.redirect('/setup/playlists');
-  } catch {
-    res.status(500).send('Internal server error');
-  }
+  res.redirect('/setup/playlists');
 });
 
 // Step 4: Generate first playlists
@@ -581,13 +474,18 @@ setupRouter.get('/complete', async (req, res) => {
     const state = await getSetupState();
     const effectiveConfig = await getEffectiveConfig();
 
-    res.render('setup/complete', {
+    // Render TSX component
+    const { CompletePage } = await import(getViewPath('setup/complete.tsx'));
+    const html = CompletePage({
       step: 'complete',
       steps: SETUP_STEPS,
       currentStepIndex: 4,
       state,
       dailyPlaylistsCron: effectiveConfig.dailyPlaylistsCron
     });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } catch {
     res.status(500).send('Internal server error');
   }

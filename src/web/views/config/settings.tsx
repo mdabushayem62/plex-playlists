@@ -49,6 +49,17 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
   return (
     <Layout title="Settings" page={page} setupComplete={setupComplete}>
       <div>
+        {/* Breadcrumbs */}
+        <nav aria-label="breadcrumb" style="margin-bottom: 1rem;">
+          <ol style="display: flex; list-style: none; padding: 0; gap: 0.5rem; font-size: 0.875rem; color: var(--pico-muted-color);">
+            <li><a href="/">Dashboard</a></li>
+            <li>›</li>
+            <li><a href="/config">Configuration</a></li>
+            <li>›</li>
+            <li><span style="color: var(--pico-contrast);">Settings</span></li>
+          </ol>
+        </nav>
+
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <div>
             <h2 style="margin: 0;">⚙️ Settings</h2>
@@ -102,8 +113,8 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
           <div>
             <p style="color: var(--pico-muted-color); font-size: 0.875rem; margin-bottom: 0.75rem;">
               Optional: Add API keys for enhanced genre metadata.
-              <a href="https://github.com/aceofaces/plex-playlists/blob/main/LASTFM_SETUP.md" target="_blank">Last.fm guide</a> •
-              <a href="https://github.com/aceofaces/plex-playlists/blob/main/SPOTIFY_SETUP.md" target="_blank">Spotify guide</a>
+              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/lastfm-setup.md" target="_blank">Last.fm guide</a> •
+              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/spotify-setup.md" target="_blank">Spotify guide</a>
             </p>
 
             {Object.entries(apiSettings).map(([key, metadata]) => {
@@ -252,6 +263,21 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
             </div>
           </div>
         </details>
+
+        {/* Genre Playlists Link */}
+        <div style="background: var(--pico-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong>Genre Playlists Configuration</strong>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.8125rem; color: var(--pico-muted-color);">
+                Manage genre playlist JSON config separately
+              </p>
+            </div>
+            <a href="/config/playlists" class="secondary" style="text-decoration: none; margin: 0; white-space: nowrap;">
+              🎵 Edit Playlists
+            </a>
+          </div>
+        </div>
 
         {/* Configuration Tips */}
         <div style="background: linear-gradient(135deg, rgba(var(--pico-primary-rgb), 0.1) 0%, rgba(var(--pico-primary-rgb), 0.05) 100%); border: 1px solid var(--pico-primary); border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem;">

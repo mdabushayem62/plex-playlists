@@ -6,9 +6,10 @@
 import { Router } from 'express';
 import { getViewPath } from '../server.js';
 import { getDb } from '../../db/index.js';
-import { playlists, playlistTracks, jobRuns, setupState } from '../../db/schema.js';
+import { playlists, playlistTracks, jobRuns, setupState, customPlaylists } from '../../db/schema.js';
 import { desc, eq } from 'drizzle-orm';
 import { TIME_WINDOWS } from '../../windows.js';
+import { getGenreSummary, getMoodSummary } from '../../config/genre-discovery.js';
 
 export const playlistsRouter = Router();
 
@@ -72,6 +73,221 @@ playlistsRouter.get('/', async (req, res) => {
   } catch (error) {
     console.error('Playlists page error:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Playlist builder page
+ * IMPORTANT: This must come BEFORE /:id route to avoid "builder" being parsed as an ID
+ */
+playlistsRouter.get('/builder', async (req, res) => {
+  try {
+    const db = getDb();
+    const setupComplete = await getSetupStatus();
+
+    // Get all custom playlists
+    const dbPlaylists = await db
+      .select()
+      .from(customPlaylists)
+      .orderBy(desc(customPlaylists.createdAt));
+
+    // Parse JSON fields
+    const parsedPlaylists = dbPlaylists.map(p => ({
+      ...p,
+      genres: JSON.parse(p.genres) as string[],
+      moods: JSON.parse(p.moods) as string[]
+    }));
+
+    // Get available genres and moods from cache
+    const genreSummary = await getGenreSummary();
+    const moodSummary = await getMoodSummary();
+
+    // Filter to genres/moods with meaningful data (at least 5 artists/tracks)
+    const availableGenres = Array.from(genreSummary.entries())
+      .filter(([, count]) => count >= 5)
+      .map(([genre]) => genre);
+
+    const availableMoods = Array.from(moodSummary.entries())
+      .filter(([, count]) => count >= 3)
+      .map(([mood]) => mood);
+
+    // Render TSX component
+    const { PlaylistBuilderPage } = await import(getViewPath('playlists/builder.tsx'));
+    const html = PlaylistBuilderPage({
+      customPlaylists: parsedPlaylists,
+      availableGenres,
+      availableMoods,
+      setupComplete,
+      page: 'playlists'
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Playlist builder page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Create a new custom playlist
+ */
+playlistsRouter.post('/builder', async (req, res) => {
+  try {
+    const { name, genres, moods, targetSize, description } = req.body;
+
+    // Validation
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    if (!Array.isArray(genres) || !Array.isArray(moods)) {
+      return res.status(400).json({ error: 'Genres and moods must be arrays' });
+    }
+
+    if (genres.length > 2) {
+      return res.status(400).json({ error: 'Maximum 2 genres allowed' });
+    }
+
+    if (moods.length > 2) {
+      return res.status(400).json({ error: 'Maximum 2 moods allowed' });
+    }
+
+    if (genres.length === 0 && moods.length === 0) {
+      return res.status(400).json({ error: 'At least one genre or mood is required' });
+    }
+
+    if (targetSize && (targetSize < 10 || targetSize > 200)) {
+      return res.status(400).json({ error: 'Target size must be between 10 and 200' });
+    }
+
+    const db = getDb();
+
+    // Check for duplicate name
+    const existing = await db
+      .select()
+      .from(customPlaylists)
+      .where(eq(customPlaylists.name, name.trim()))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'A playlist with this name already exists' });
+    }
+
+    // Insert new playlist
+    await db.insert(customPlaylists).values({
+      name: name.trim(),
+      genres: JSON.stringify(genres),
+      moods: JSON.stringify(moods),
+      targetSize: targetSize || 50,
+      description: description || null,
+      enabled: true
+    });
+
+    res.json({ success: true, message: 'Playlist created successfully' });
+  } catch (error) {
+    console.error('Create playlist error:', error);
+    res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+/**
+ * Toggle playlist enabled/disabled
+ */
+playlistsRouter.put('/builder/:id/toggle', async (req, res) => {
+  try {
+    const playlistId = parseInt(req.params.id, 10);
+    const { enabled } = req.body;
+
+    if (isNaN(playlistId)) {
+      return res.status(400).json({ error: 'Invalid playlist ID' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'Enabled must be a boolean' });
+    }
+
+    const db = getDb();
+
+    await db
+      .update(customPlaylists)
+      .set({ enabled, updatedAt: new Date() })
+      .where(eq(customPlaylists.id, playlistId));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Toggle playlist error:', error);
+    res.status(500).json({ error: 'Failed to toggle playlist' });
+  }
+});
+
+/**
+ * Generate a playlist immediately (trigger job)
+ */
+playlistsRouter.post('/builder/:id/generate', async (req, res) => {
+  try {
+    const playlistId = parseInt(req.params.id, 10);
+
+    if (isNaN(playlistId)) {
+      return res.status(400).json({ error: 'Invalid playlist ID' });
+    }
+
+    const db = getDb();
+
+    // Get playlist details
+    const playlist = await db
+      .select()
+      .from(customPlaylists)
+      .where(eq(customPlaylists.id, playlistId))
+      .limit(1);
+
+    if (playlist.length === 0) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+
+    // Import and trigger generation (async, don't wait)
+    const { generateCustomPlaylist } = await import('../../playlist/custom-playlist-runner.js');
+
+    // Run in background
+    generateCustomPlaylist({ playlistId })
+      .then(() => {
+        console.log(`Custom playlist ${playlistId} generated successfully`);
+      })
+      .catch(err => {
+        console.error(`Custom playlist ${playlistId} generation failed:`, err);
+      });
+
+    res.json({
+      success: true,
+      message: 'Playlist generation started'
+    });
+  } catch (error) {
+    console.error('Generate playlist error:', error);
+    res.status(500).json({ error: 'Failed to start generation' });
+  }
+});
+
+/**
+ * Delete a custom playlist
+ */
+playlistsRouter.delete('/builder/:id', async (req, res) => {
+  try {
+    const playlistId = parseInt(req.params.id, 10);
+
+    if (isNaN(playlistId)) {
+      return res.status(400).json({ error: 'Invalid playlist ID' });
+    }
+
+    const db = getDb();
+
+    await db
+      .delete(customPlaylists)
+      .where(eq(customPlaylists.id, playlistId));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete playlist error:', error);
+    res.status(500).json({ error: 'Failed to delete playlist' });
   }
 });
 

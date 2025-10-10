@@ -1,16 +1,12 @@
-import { getEnabledGenrePlaylists, getAutoDiscoverConfig } from './config/playlist-config.js';
-import { discoverGenres } from './config/genre-discovery.js';
-import { logger } from './logger.js';
-
 // Time-based windows for daily playlists (stable)
 export const TIME_WINDOWS = ['morning', 'afternoon', 'evening'] as const;
 export type TimeWindow = (typeof TIME_WINDOWS)[number];
 
 // Cache maintenance windows
-export const CACHE_WINDOWS = ['cache-warm', 'cache-refresh'] as const;
+export const CACHE_WINDOWS = ['cache-warm', 'cache-refresh', 'custom-playlists'] as const;
 export type CacheWindow = (typeof CACHE_WINDOWS)[number];
 
-// Genre windows are now dynamic - loaded from config
+// Genre windows are deprecated - use custom playlists instead
 export type GenreWindow = string;
 export type PlaylistWindow = TimeWindow | GenreWindow | CacheWindow;
 
@@ -38,57 +34,13 @@ export const DEFAULT_TIME_WINDOWS: TimeWindowDefinition[] = [
 ];
 
 /**
- * Get all genre windows from config (pinned + auto-discovered)
+ * Get all genre windows from config
+ * NOTE: Genre playlists are deprecated - always returns empty array
+ * Use custom playlists via web UI instead
  */
 export async function getGenreWindows(): Promise<GenreWindowDefinition[]> {
-  const windows: GenreWindowDefinition[] = [];
-
-  // 1. Load pinned playlists from config
-  const pinned = getEnabledGenrePlaylists();
-  for (const playlist of pinned) {
-    windows.push({
-      type: 'genre',
-      window: playlist.name,
-      genre: playlist.genre,
-      cron: playlist.cron,
-      autoDiscovered: false
-    });
-  }
-
-  // 2. Auto-discover genres if enabled
-  const autoDiscoverConfig = getAutoDiscoverConfig();
-  if (autoDiscoverConfig.enabled) {
-    try {
-      const discovered = await discoverGenres();
-
-      // Filter out genres that are already pinned
-      const pinnedGenres = new Set(pinned.map(p => p.genre.toLowerCase()));
-
-      for (const genre of discovered) {
-        if (!pinnedGenres.has(genre.genre)) {
-          windows.push({
-            type: 'genre',
-            window: genre.genre.replace(/\s+/g, '-'), // Convert "power metal" to "power-metal"
-            genre: genre.genre,
-            cron: autoDiscoverConfig.schedule,
-            autoDiscovered: true
-          });
-        }
-      }
-
-      logger.debug(
-        {
-          pinned: pinned.length,
-          autoDiscovered: discovered.length
-        },
-        'genre windows loaded'
-      );
-    } catch (error) {
-      logger.error({ error }, 'failed to auto-discover genres');
-    }
-  }
-
-  return windows;
+  // Genre playlists are replaced by custom playlists in the web UI
+  return [];
 }
 
 /**

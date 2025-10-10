@@ -48,6 +48,11 @@ export const createApp = (): App => {
         }
       }
 
+      // Add custom playlists job
+      if (APP_ENV.CUSTOM_PLAYLISTS_CRON) {
+        cronExpressions['custom-playlists'] = APP_ENV.CUSTOM_PLAYLISTS_CRON;
+      }
+
       // Add cache maintenance jobs
       if (APP_ENV.CACHE_WARM_CRON) {
         cronExpressions['cache-warm'] = APP_ENV.CACHE_WARM_CRON;
@@ -62,6 +67,7 @@ export const createApp = (): App => {
           genreWindows: genreWindows.length,
           pinnedGenres: genreWindows.filter(g => !g.autoDiscovered).length,
           autoDiscovered: genreWindows.filter(g => g.autoDiscovered).length,
+          customPlaylists: cronExpressions['custom-playlists'] ? 'enabled' : 'disabled',
           cacheJobs: Object.keys(cronExpressions).filter(k => k.startsWith('cache-')).length
         },
         'loading playlist schedules'

@@ -1,0 +1,1 @@
+ALTER TABLE `album_genre_cache` ADD `moods` text DEFAULT '[]' NOT NULL;

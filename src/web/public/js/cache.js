@@ -1,73 +1,38 @@
 /**
  * Cache Management - Client-side functionality
+ * Uses shared job-monitor module for SSE progress tracking
  */
 
 /**
- * Warm cache for all artists
+ * Warm cache for all artists with progress tracking
  */
 async function warmCache() {
-  const btn = document.getElementById('warmCacheBtn');
-  const status = document.getElementById('action-status');
-  const originalText = btn.innerHTML;
+  const elements = {
+    button: document.getElementById('warmCacheBtn'),
+    progressContainer: document.getElementById('artist-cache-progress'),
+    progressBar: document.getElementById('artist-cache-progress-bar'),
+    progressPercent: document.getElementById('artist-cache-progress-percent'),
+    progressMessage: document.getElementById('artist-cache-progress-message'),
+    progressEta: document.getElementById('artist-cache-progress-eta')
+  };
 
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Starting...';
-  status.innerHTML = '<p style="color: var(--pico-muted-color);">Warming cache for all artists in your library...</p>';
-
-  try {
-    const response = await fetch('/actions/cache/warm', { method: 'POST' });
-    const data = await response.json();
-
-    if (response.ok) {
-      btn.innerHTML = '✓ Started';
-      status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Cache warming started! This may take several minutes. The page will refresh when complete.</p>';
-      setTimeout(() => window.location.reload(), 3000);
-    } else {
-      throw new Error(data.error || 'Failed to start cache warming');
-    }
-  } catch (err) {
-    btn.innerHTML = '✗ Failed';
-    btn.disabled = false;
-    status.innerHTML = '<p style="color: var(--pico-del-color);">✗ ' + err.message + '</p>';
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-      status.innerHTML = '';
-    }, 3000);
-  }
+  await window.jobMonitor.startCacheWarming('artist', elements);
 }
 
 /**
- * Warm album cache for all albums
+ * Warm album cache for all albums with progress tracking
  */
 async function warmAlbumCache() {
-  const btn = document.getElementById('warmAlbumCacheBtn');
-  const status = document.getElementById('action-status');
-  const originalText = btn.innerHTML;
+  const elements = {
+    button: document.getElementById('warmAlbumCacheBtn'),
+    progressContainer: document.getElementById('album-cache-progress'),
+    progressBar: document.getElementById('album-cache-progress-bar'),
+    progressPercent: document.getElementById('album-cache-progress-percent'),
+    progressMessage: document.getElementById('album-cache-progress-message'),
+    progressEta: document.getElementById('album-cache-progress-eta')
+  };
 
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Starting...';
-  status.innerHTML = '<p style="color: var(--pico-muted-color);">Warming album cache for all albums in your library... This will take 20-30 minutes.</p>';
-
-  try {
-    const response = await fetch('/actions/cache/warm-albums', { method: 'POST' });
-    const data = await response.json();
-
-    if (response.ok) {
-      btn.innerHTML = '✓ Started';
-      status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Album cache warming started! This will take 20-30 minutes. You can close this page and check back later.</p>';
-      setTimeout(() => window.location.reload(), 5000);
-    } else {
-      throw new Error(data.error || 'Failed to start album cache warming');
-    }
-  } catch (err) {
-    btn.innerHTML = '✗ Failed';
-    btn.disabled = false;
-    status.innerHTML = '<p style="color: var(--pico-del-color);">✗ ' + err.message + '</p>';
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-      status.innerHTML = '';
-    }, 3000);
-  }
+  await window.jobMonitor.startCacheWarming('album', elements);
 }
 
 /**

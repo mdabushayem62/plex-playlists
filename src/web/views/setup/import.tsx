@@ -45,7 +45,7 @@ export function ImportPage(props: ImportPageProps): JSX.Element {
             <strong>JSON Files:</strong> YouTube Music / Google Takeout exports (auto-detected)
           </p>
           <p style="margin: 0; font-size: 0.875rem;">
-            📖 See <a href="https://github.com/aceofaces/plex-playlists/blob/main/IMPORTING.md" target="_blank">IMPORTING.md</a>
+            📖 See <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/importing.md" target="_blank">Importing Guide</a>
             for detailed format specifications and export instructions.
           </p>
         </div>

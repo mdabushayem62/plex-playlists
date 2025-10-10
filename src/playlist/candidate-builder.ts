@@ -3,7 +3,7 @@ import type { Track } from '@ctrl/plex';
 import type { AggregatedHistory } from '../history/aggregate.js';
 import { fallbackScore, recencyWeight } from '../scoring/weights.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
-import { getEnrichedAlbumGenres } from '../genre-enrichment.js';
+import { getEnrichedAlbumGenres, getEnrichedAlbumMoods } from '../genre-enrichment.js';
 
 export interface CandidateTrack {
   ratingKey: string;
@@ -12,6 +12,8 @@ export interface CandidateTrack {
   album?: string;
   title: string;
   genre?: string;
+  genres?: string[]; // All genres for multi-genre filtering
+  moods?: string[]; // All moods for mood-based filtering
   recencyWeight: number;
   fallbackScore: number;
   playCount: number;
@@ -24,7 +26,7 @@ const FINAL_SCORE_FALLBACK_WEIGHT = 0.3;
 
 /**
  * Get genre for a track with enrichment from multiple sources
- * Priority: Embedded tag > Album genres (Spotify/Last.fm) > Fallback to artist
+ * Priority: Embedded tag > Album genres > Artist genres
  * Note: Uses cache-only mode to avoid rate limits during playlist generation
  */
 export const getGenre = async (track: Track): Promise<string | undefined> => {
@@ -35,18 +37,80 @@ export const getGenre = async (track: Track): Promise<string | undefined> => {
   }
 
   // Use album-level genre enrichment (with artist fallback)
-  // Cache-only mode: only uses cached data, doesn't make API calls
+  // Note: Album enrichment only uses Plex metadata and cached data
   const artistName = track.grandparentTitle;
   const albumName = track.parentTitle;
 
   if (artistName && albumName) {
-    const albumGenres = await getEnrichedAlbumGenres(artistName, albumName, true);
+    const albumGenres = await getEnrichedAlbumGenres(artistName, albumName);
     if (albumGenres.length > 0) {
       return albumGenres[0]; // Return primary genre
     }
   }
 
+  // Try artist-level genres (cache-only to avoid API calls during playlist generation)
+  if (artistName) {
+    const { getGenreEnrichmentService } = await import('../genre-enrichment.js');
+    const service = getGenreEnrichmentService();
+    const artistGenres = await service.getGenresForArtist(artistName, { cacheOnly: true });
+    if (artistGenres.length > 0) {
+      return artistGenres[0];
+    }
+  }
+
   return undefined;
+};
+
+/**
+ * Get all genres for a track (for multi-genre matching)
+ */
+const getAllGenres = async (track: Track): Promise<string[]> => {
+  const artistName = track.grandparentTitle;
+  const albumName = track.parentTitle;
+
+  if (artistName && albumName) {
+    const albumGenres = await getEnrichedAlbumGenres(artistName, albumName);
+    if (albumGenres.length > 0) {
+      return albumGenres;
+    }
+  }
+
+  if (artistName) {
+    const { getGenreEnrichmentService } = await import('../genre-enrichment.js');
+    const service = getGenreEnrichmentService();
+    const artistGenres = await service.getGenresForArtist(artistName, { cacheOnly: true });
+    if (artistGenres.length > 0) {
+      return artistGenres;
+    }
+  }
+
+  return [];
+};
+
+/**
+ * Get all moods for a track
+ */
+const getAllMoods = async (track: Track): Promise<string[]> => {
+  const artistName = track.grandparentTitle;
+  const albumName = track.parentTitle;
+
+  if (artistName && albumName) {
+    const albumMoods = await getEnrichedAlbumMoods(artistName, albumName);
+    if (albumMoods.length > 0) {
+      return albumMoods;
+    }
+  }
+
+  if (artistName) {
+    const { getGenreEnrichmentService } = await import('../genre-enrichment.js');
+    const service = getGenreEnrichmentService();
+    const artistMoods = await service.getMoodsForArtist(artistName);
+    if (artistMoods.length > 0) {
+      return artistMoods;
+    }
+  }
+
+  return [];
 };
 
 const buildCandidate = async (
@@ -56,6 +120,8 @@ const buildCandidate = async (
   const historyRecency = recencyWeight(history.lastPlayedAt);
   const fallback = fallbackScore(track.userRating, track.viewCount ?? history.playCount);
   const genre = await getGenre(track);
+  const genres = await getAllGenres(track);
+  const moods = await getAllMoods(track);
 
   return {
     ratingKey: track.ratingKey?.toString() ?? '',
@@ -64,6 +130,8 @@ const buildCandidate = async (
     album: track.parentTitle ?? undefined,
     title: track.title ?? 'Untitled Track',
     genre,
+    genres,
+    moods,
     recencyWeight: historyRecency,
     fallbackScore: fallback,
     playCount: history.playCount,
@@ -74,6 +142,8 @@ const buildCandidate = async (
 
 export interface BuildCandidatesOptions {
   genreFilter?: string; // Filter candidates by genre (case-insensitive substring match)
+  genreFilters?: string[]; // Filter by multiple genres (match ANY)
+  moodFilters?: string[]; // Filter by multiple moods (match ANY)
 }
 
 export const buildCandidateTracks = async (
@@ -100,11 +170,41 @@ export const buildCandidateTracks = async (
       lastPlayedAt: item.lastPlayedAt
     });
 
-    // Apply genre filter if specified
+    // Apply genre filter if specified (legacy single-genre filter)
     if (options.genreFilter) {
       const candidateGenre = candidate.genre?.toLowerCase() || '';
       const filterGenre = options.genreFilter.toLowerCase();
       if (!candidateGenre.includes(filterGenre)) {
+        continue;
+      }
+    }
+
+    // Apply multi-genre filter (match ANY of the specified genres)
+    if (options.genreFilters && options.genreFilters.length > 0) {
+      const candidateGenres = (candidate.genres || []).map(g => g.toLowerCase());
+      const filterGenres = options.genreFilters.map(g => g.toLowerCase());
+
+      // Check if candidate has at least one matching genre
+      const hasMatchingGenre = filterGenres.some(filterGenre =>
+        candidateGenres.some(candidateGenre => candidateGenre.includes(filterGenre))
+      );
+
+      if (!hasMatchingGenre) {
+        continue;
+      }
+    }
+
+    // Apply mood filter (match ANY of the specified moods)
+    if (options.moodFilters && options.moodFilters.length > 0) {
+      const candidateMoods = (candidate.moods || []).map(m => m.toLowerCase());
+      const filterMoods = options.moodFilters.map(m => m.toLowerCase());
+
+      // Check if candidate has at least one matching mood
+      const hasMatchingMood = filterMoods.some(filterMood =>
+        candidateMoods.some(candidateMood => candidateMood.includes(filterMood))
+      );
+
+      if (!hasMatchingMood) {
         continue;
       }
     }

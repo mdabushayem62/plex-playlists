@@ -35,21 +35,36 @@ export const fetchFallbackCandidates = async (
   const multiplier = options.genreFilter ? GENRE_FALLBACK_FETCH_MULTIPLIER : FALLBACK_FETCH_MULTIPLIER;
   const searchLimit = limit * multiplier;
 
-  // When filtering by genre, sort by viewCount to get popular tracks of that genre
-  // Otherwise, sort by userRating to get highly-rated tracks
-  const sortField = options.genreFilter ? 'viewCount:desc' : 'userRating:desc';
+  // Fetch tracks using BOTH sort orders to capture:
+  // 1. High-rated tracks (star ratings) - important for unplayed tracks
+  // 2. Frequently-played tracks (play count) - important for played tracks
+  const [ratedTracks, playedTracks] = await Promise.all([
+    musicSection.searchTracks({
+      sort: 'userRating:desc',
+      libtype: 'track',
+      maxresults: searchLimit
+    }),
+    musicSection.searchTracks({
+      sort: 'viewCount:desc',
+      libtype: 'track',
+      maxresults: searchLimit
+    })
+  ]);
 
-  const tracks = await musicSection.searchTracks({
-    sort: sortField,
-    libtype: 'track',
-    maxresults: searchLimit
-  });
+  // Merge and deduplicate by ratingKey
+  const allTracks = new Map<string, Track>();
+  for (const track of [...ratedTracks, ...playedTracks] as Track[]) {
+    const key = track.ratingKey?.toString();
+    if (key && !allTracks.has(key)) {
+      allTracks.set(key, track);
+    }
+  }
 
   const candidates: CandidateTrack[] = [];
   let matchedCount = 0;
   let totalProcessed = 0;
 
-  for (const track of tracks as Track[]) {
+  for (const track of allTracks.values()) {
     totalProcessed++;
 
     const lastViewed = track.lastViewedAt ?? null;
@@ -71,7 +86,7 @@ export const fetchFallbackCandidates = async (
     candidates.push(candidate);
 
     // Stop early if we have enough candidates (when filtering by genre)
-    if (options.genreFilter && candidates.length >= limit) {
+    if (options.genreFilter && candidates.length >= limit * 2) {
       break;
     }
   }
@@ -88,6 +103,7 @@ export const fetchFallbackCandidates = async (
     );
   }
 
+  // Sort by finalScore which combines rating (60%) and play count (40%)
   candidates.sort((a, b) => b.finalScore - a.finalScore);
   return candidates.slice(0, limit);
 };

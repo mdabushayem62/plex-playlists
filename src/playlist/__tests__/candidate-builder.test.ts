@@ -16,7 +16,15 @@ vi.mock('../../logger.js', () => ({
 // Mock genre enrichment service
 vi.mock('../../genre-enrichment.js', () => ({
   getEnrichedGenres: vi.fn().mockResolvedValue([]),
-  getEnrichedAlbumGenres: vi.fn().mockResolvedValue([])
+  getEnrichedAlbumGenres: vi.fn().mockResolvedValue([]),
+  getEnrichedMoods: vi.fn().mockResolvedValue([]),
+  getEnrichedAlbumMoods: vi.fn().mockResolvedValue([]),
+  getGenreEnrichmentService: vi.fn().mockReturnValue({
+    getGenresForArtist: vi.fn().mockResolvedValue([]),
+    getGenresForAlbum: vi.fn().mockResolvedValue([]),
+    getMoodsForArtist: vi.fn().mockResolvedValue([]),
+    getMoodsForAlbum: vi.fn().mockResolvedValue([])
+  })
 }));
 
 // Mock the Plex tracks module

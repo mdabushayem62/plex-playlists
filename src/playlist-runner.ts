@@ -28,13 +28,14 @@ const mergeCandidates = (primary: CandidateTrack[], fallback: CandidateTrack[]):
 };
 
 export interface PlaylistRunner {
-  run(window: PlaylistWindow): Promise<void>;
+  run(window: PlaylistWindow, jobId?: number | null): Promise<void>;
   runAllDaily(): Promise<void>;
 }
 
 export class DailyPlaylistRunner implements PlaylistRunner {
-  async run(window: PlaylistWindow): Promise<void> {
-    const jobId = await recordJobStart(window);
+  async run(window: PlaylistWindow, existingJobId?: number | null): Promise<void> {
+    // Use existing job ID (from web UI) or create a new one (from CLI/scheduler)
+    const jobId = existingJobId ?? await recordJobStart(window);
     const targetSize = APP_ENV.PLAYLIST_TARGET_SIZE;
     const maxPerArtist = APP_ENV.MAX_PER_ARTIST;
     const fallbackLimit = APP_ENV.FALLBACK_LIMIT;
@@ -61,11 +62,63 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       let candidates = await buildCandidateTracks(aggregatedHistory, { genreFilter });
       const historyCandidates = candidates.length;
 
-      if (candidates.length < targetSize) {
+      // For genre playlists with no listening history, use a different strategy:
+      // 1. Get high-quality tracks from entire library (no genre filter)
+      // 2. Use sonic similarity to find similar tracks
+      // 3. Filter sonic results to the target genre
+      const useGenreSonicExpansion = genreFilter && historyCandidates === 0;
+
+      if (candidates.length < targetSize && !useGenreSonicExpansion) {
         logger.info({ window, current: candidates.length, target: targetSize }, 'fetching fallback candidates');
         const fallbackCandidates = await fetchFallbackCandidates(fallbackLimit, { genreFilter });
         logger.info({ window, fallbackCount: fallbackCandidates.length }, 'fallback candidates fetched');
         candidates = mergeCandidates(candidates, fallbackCandidates);
+      } else if (useGenreSonicExpansion) {
+        // Genre playlist with no history - use sonic expansion from high-quality tracks of ANY genre
+        logger.info(
+          { window, genreFilter, targetSize },
+          'no genre history found - using sonic expansion from high-quality tracks across all genres'
+        );
+
+        // Get high-quality seed tracks from entire library (no genre filter)
+        const seedCandidates = await fetchFallbackCandidates(50, {}); // No genre filter for seeds
+        logger.info(
+          { window, seedCount: seedCandidates.length },
+          'fetched high-quality seed tracks from entire library'
+        );
+
+        if (seedCandidates.length > 0) {
+          // Use sonic similarity to find tracks similar to high-quality seeds
+          const sonicCandidates = await expandWithSonicSimilarity({
+            seeds: seedCandidates,
+            exclude: new Set(), // No exclusions for initial expansion
+            needed: targetSize * 3, // Get extra to ensure enough after genre filtering
+            maxSeeds: 20, // Use more seeds for better coverage
+            perSeed: 25 // Get more results per seed
+          });
+
+          logger.info(
+            { window, sonicCount: sonicCandidates.length },
+            'fetched sonic similarity candidates'
+          );
+
+          // NOW filter to the target genre
+          const genreFilteredCandidates = [];
+          for (const candidate of sonicCandidates) {
+            const candidateGenre = candidate.genre?.toLowerCase() || '';
+            const filterGenre = genreFilter.toLowerCase();
+            if (candidateGenre.includes(filterGenre)) {
+              genreFilteredCandidates.push(candidate);
+            }
+          }
+
+          logger.info(
+            { window, beforeFilter: sonicCandidates.length, afterFilter: genreFilteredCandidates.length },
+            'filtered sonic candidates by genre'
+          );
+
+          candidates = mergeCandidates(candidates, genreFilteredCandidates);
+        }
       }
 
       logger.info(

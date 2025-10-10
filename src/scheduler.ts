@@ -58,6 +58,17 @@ class Scheduler {
         });
         this.tasks.push(task);
       }
+      // Custom playlists job
+      else if (window === 'custom-playlists') {
+        const task = cron.schedule(expression, async () => {
+          logger.info('starting scheduled custom playlists generation');
+          const { generateAllCustomPlaylists } = await import('./playlist/custom-playlist-runner.js');
+          generateAllCustomPlaylists()
+            .then(result => logger.info({ ...result }, 'custom playlists generation complete'))
+            .catch(error => logger.error({ err: error }, 'custom playlists generation failed'));
+        });
+        this.tasks.push(task);
+      }
       // Regular playlist windows
       else {
         // Use cron from node-cron; default timezone from process env (tz of container)

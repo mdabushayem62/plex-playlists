@@ -116,12 +116,24 @@ export function ActionsPage(props: ActionsPageProps): JSX.Element {
 
         {/* Playlist Generation */}
         <section style="margin-bottom: 2rem;">
-          <h3>Generate Playlists</h3>
-          <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
-            Generate playlists immediately without waiting for the scheduled time.
-          </p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div>
+              <h3 style="margin: 0 0 0.5rem 0;">Generate Playlists</h3>
+              <p style="color: var(--pico-muted-color); margin: 0;">
+                Generate playlists immediately without waiting for the scheduled time.
+              </p>
+            </div>
+            <a href="/playlists/builder" role="button" class="secondary" style="white-space: nowrap;">
+              🎨 Custom Playlists
+            </a>
+          </div>
 
-          <h4>Time-Based Playlists</h4>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <h4 style="margin: 0;">Time-Based Playlists</h4>
+            <small style="color: var(--pico-muted-color);">
+              For genre/mood combinations, use the <a href="/playlists/builder">playlist builder</a>
+            </small>
+          </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
             {timeWindows.map(window => (
               <form method="POST" action={`/actions/generate/${window}`}>
@@ -277,7 +289,7 @@ export function ActionsPage(props: ActionsPageProps): JSX.Element {
                 Your CSV files must include: <code>title</code>, <code>artist</code>, <code>album</code>, and <code>rating</code>
               </p>
               <p style="margin: 0; font-size: 0.875rem;">
-                📖 See <a href="https://github.com/aceofaces/plex-playlists/blob/main/IMPORTING.md" target="_blank">IMPORTING.md</a>
+                📖 See <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/importing.md" target="_blank">Importing Guide</a>
                 for detailed format specifications.
               </p>
             </div>
@@ -326,7 +338,8 @@ export function ActionsPage(props: ActionsPageProps): JSX.Element {
         </section>
       </div>
 
-      {/* Load actions.js for client-side interactivity */}
+      {/* Load shared job monitoring module and actions.js */}
+      <script src="/js/job-monitor.js"></script>
       <script src="/js/actions.js"></script>
 
       {/* Initialize with active job IDs */}

@@ -10,6 +10,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Compiled web views (TSX transpilation artifacts)
+src/web/views/**/*.js
+
 # Config directory (except documentation and templates)
 /config/
 !/config/README.md
@@ -57,3 +60,7 @@ temp/
 
 # Ad-hoc test scripts (root level only)
 /test-*.ts
+/test-*.js
+/test-*.mjs
+/test-*.cjs
+/test-*.sh

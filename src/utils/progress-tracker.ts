@@ -9,6 +9,14 @@ import { jobRuns } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
 
+export interface SourceCounts {
+  spotify: number;
+  lastfm: number;
+  plex: number;
+  manual: number;
+  cached: number;
+}
+
 export interface JobProgress {
   jobId: number;
   current: number;
@@ -18,6 +26,7 @@ export interface JobProgress {
   lastUpdateTime: number;
   lastPersistTime: number;
   lastPersistedPercent: number;
+  sourceCounts?: SourceCounts;
 }
 
 export interface ProgressUpdate {
@@ -27,6 +36,7 @@ export interface ProgressUpdate {
   message: string;
   percent: number;
   eta: number | null; // seconds remaining
+  sourceCounts?: SourceCounts;
 }
 
 /**
@@ -41,7 +51,7 @@ class ProgressTracker extends EventEmitter {
   /**
    * Initialize progress tracking for a job
    */
-  startTracking(jobId: number, total: number, message: string): void {
+  startTracking(jobId: number, total: number, message: string, trackSources = false): void {
     const now = Date.now();
     this.jobs.set(jobId, {
       jobId,
@@ -51,7 +61,8 @@ class ProgressTracker extends EventEmitter {
       startTime: now,
       lastUpdateTime: now,
       lastPersistTime: now,
-      lastPersistedPercent: 0
+      lastPersistedPercent: 0,
+      sourceCounts: trackSources ? { spotify: 0, lastfm: 0, plex: 0, manual: 0, cached: 0 } : undefined
     });
 
     logger.debug({ jobId, total, message }, 'started progress tracking');
@@ -101,6 +112,25 @@ class ProgressTracker extends EventEmitter {
   }
 
   /**
+   * Increment source count for a job
+   * Used to track which API source was used for genre enrichment
+   */
+  incrementSource(
+    jobId: number,
+    source: 'spotify' | 'lastfm' | 'plex' | 'manual' | 'cached'
+  ): void {
+    const progress = this.jobs.get(jobId);
+    if (!progress || !progress.sourceCounts) {
+      return;
+    }
+
+    progress.sourceCounts[source]++;
+
+    // Emit update for real-time source tracking
+    this.emitUpdate(jobId);
+  }
+
+  /**
    * Get current progress for a job
    */
   getProgress(jobId: number): ProgressUpdate | null {
@@ -115,7 +145,8 @@ class ProgressTracker extends EventEmitter {
       total: progress.total,
       message: progress.message,
       percent: Math.floor((progress.current / progress.total) * 100),
-      eta: this.calculateETA(progress)
+      eta: this.calculateETA(progress),
+      sourceCounts: progress.sourceCounts
     };
   }
 

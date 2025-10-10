@@ -11,7 +11,8 @@ vi.mock('../../plex/client.js', () => ({
 vi.mock('../../logger.js', () => ({
   logger: {
     debug: vi.fn(),
-    warn: vi.fn()
+    warn: vi.fn(),
+    error: vi.fn()
   }
 }));
 
@@ -44,7 +45,23 @@ function createMockHistoryItem(
 
 function createMockServer(historyResult: MockHistoryItem[]): PlexServer {
   return {
-    history: vi.fn().mockResolvedValue(historyResult)
+    history: vi.fn().mockResolvedValue(historyResult),
+    library: vi.fn().mockResolvedValue({
+      sections: vi.fn().mockResolvedValue([
+        {
+          key: '6',
+          title: 'Music',
+          CONTENT_TYPE: 'audio',
+          type: 'artist'
+        }
+      ])
+    }),
+    query: vi.fn().mockResolvedValue({
+      MediaContainer: {
+        Metadata: historyResult,
+        totalSize: historyResult.length
+      }
+    })
   } as unknown as PlexServer;
 }
 
@@ -64,7 +81,8 @@ describe('fetchHistoryForWindow', () => {
 
     const result = await fetchHistoryForWindow('morning', 30);
 
-    expect(server.history).toHaveBeenCalled();
+    // New implementation uses raw API query instead of server.history()
+    expect(server.query).toHaveBeenCalled();
     expect(result).toHaveLength(1);
     expect(result[0].ratingKey).toBe('123');
   });
@@ -286,17 +304,17 @@ describe('fetchHistoryForWindow', () => {
     expect(result[0].ratingKey).toBe('123');
   });
 
-  it('passes custom days and maxresults to server.history', async () => {
+  it('passes custom days and maxresults to server.query', async () => {
     const server = createMockServer([]);
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
     await fetchHistoryForWindow('morning', 60, 10000);
 
-    // Should pass mindate (60 days back) and maxresults (10000)
-    expect(server.history).toHaveBeenCalledWith(
-      10000,
-      expect.any(Date) // mindate
-    );
+    // New implementation uses raw API query
+    expect(server.query).toHaveBeenCalled();
+    const queryCall = vi.mocked(server.query).mock.calls[0];
+    expect(queryCall[0]).toContain('librarySectionID=6');
+    expect(queryCall[0]).toContain('X-Plex-Container-Size=10000');
   });
 
   it('logs debug messages', async () => {
@@ -309,13 +327,15 @@ describe('fetchHistoryForWindow', () => {
 
     await fetchHistoryForWindow('morning', 30);
 
+    // New implementation logs: "fetching history slice", "fetched history via raw API",
+    // "received history from plex", "history entry types", "history slice ready"
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ window: 'morning' }),
-      expect.stringContaining('fetching')
+      'fetching history slice'
     );
     expect(logger.debug).toHaveBeenCalledWith(
-      expect.objectContaining({ window: 'morning', count: 1 }),
-      expect.stringContaining('ready')
+      expect.objectContaining({ window: 'morning', filteredCount: 1 }),
+      'history slice ready'
     );
   });
 });

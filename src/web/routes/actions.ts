@@ -132,24 +132,45 @@ actionsRouter.post('/generate/:window', async (req, res) => {
       .returning();
 
     // Run playlist generation asynchronously
+    // Pass the jobId so the runner doesn't create a duplicate job record
     const runner = createPlaylistRunner();
     runner
-      .run(window)
+      .run(window, jobRecord.id)
       .then(async () => {
-        await db
-          .update(jobRuns)
-          .set({ status: 'success', finishedAt: new Date() })
-          .where(eq(jobRuns.id, jobRecord.id));
+        // Runner already updated the job status, but double-check
+        const [currentJob] = await db
+          .select()
+          .from(jobRuns)
+          .where(eq(jobRuns.id, jobRecord.id))
+          .limit(1);
+
+        // Only update if runner didn't already mark as complete
+        if (currentJob && currentJob.status === 'running') {
+          await db
+            .update(jobRuns)
+            .set({ status: 'success', finishedAt: new Date() })
+            .where(eq(jobRuns.id, jobRecord.id));
+        }
       })
       .catch(async (error) => {
-        await db
-          .update(jobRuns)
-          .set({
-            status: 'failed',
-            finishedAt: new Date(),
-            error: error instanceof Error ? error.message : 'Unknown error'
-          })
-          .where(eq(jobRuns.id, jobRecord.id));
+        // Runner already recorded the error, but double-check
+        const [currentJob] = await db
+          .select()
+          .from(jobRuns)
+          .where(eq(jobRuns.id, jobRecord.id))
+          .limit(1);
+
+        // Only update if runner didn't already mark as failed
+        if (currentJob && currentJob.status === 'running') {
+          await db
+            .update(jobRuns)
+            .set({
+              status: 'failed',
+              finishedAt: new Date(),
+              error: error instanceof Error ? error.message : 'Unknown error'
+            })
+            .where(eq(jobRuns.id, jobRecord.id));
+        }
       });
 
     res.json({ jobId: jobRecord.id, window });
@@ -247,15 +268,22 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
     const progressHandler = (update: any) => {
       if (update.jobId === jobId) {
         try {
+          // Send full job object (same format as initial status) so client's onmessage receives it
           const data = {
-            type: 'progress',
-            current: update.current,
-            total: update.total,
-            percent: update.percent,
-            message: update.message,
-            eta: update.eta ? formatETA(update.eta) : null
+            id: job.id.toString(),
+            type: job.window.includes('cache') ? 'cache' : 'playlist',
+            status: 'running',
+            started: job.startedAt,
+            progress: {
+              current: update.current,
+              total: update.total,
+              percent: update.percent,
+              message: update.message,
+              eta: update.eta ? formatETA(update.eta) : null,
+              sourceCounts: update.sourceCounts
+            }
           };
-          res.write(`event: progress\n`);
+          // Don't specify event type so it triggers onmessage on client
           res.write(`data: ${JSON.stringify(data)}\n\n`);
         } catch (error) {
           console.error('SSE write error:', error);
@@ -275,8 +303,7 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
           .limit(1);
 
         if (!currentJob) {
-          // Job no longer exists
-          res.write('event: complete\n');
+          // Job no longer exists - send as default message event
           res.write('data: {"status":"not_found"}\n\n');
           clearInterval(intervalId);
           progressTracker.off('progress', progressHandler);
@@ -302,7 +329,7 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
               eta: progress.eta ? formatETA(progress.eta) : null
             } : null
           };
-          res.write(`event: status\n`);
+          // Don't specify event type so it triggers onmessage on client
           res.write(`data: ${JSON.stringify(status)}\n\n`);
         }
 
@@ -395,8 +422,12 @@ actionsRouter.get('/cache', async (req, res) => {
     const { CachePage } = await import(getViewPath('actions/cache.tsx'));
     const html = CachePage({
       stats,
-      artistEntries: artistCacheEntries.slice(0, 50), // Show first 50
-      albumEntries: albumCacheEntries.slice(0, 50), // Show first 50
+      artistEntries: artistCacheEntries
+        .sort((a, b) => new Date(b.cachedAt).getTime() - new Date(a.cachedAt).getTime())
+        .slice(0, 50), // Show latest 50
+      albumEntries: albumCacheEntries
+        .sort((a, b) => new Date(b.cachedAt).getTime() - new Date(a.cachedAt).getTime())
+        .slice(0, 50), // Show latest 50
       setupComplete,
       page: 'actions'
     });
@@ -466,8 +497,10 @@ actionsRouter.post('/cache/warm', async (req, res) => {
     res.json({ jobId: jobRecord.id, message: 'Artist cache warming started' });
 
     // Run cache warming asynchronously with conservative concurrency
+    // Pass the jobId so progress tracking works with SSE
     warmCache({
-      concurrency: 2
+      concurrency: 2,
+      jobId: jobRecord.id
     })
       .then(async () => {
         await db
@@ -512,8 +545,10 @@ actionsRouter.post('/cache/warm-albums', async (req, res) => {
     res.json({ jobId: jobRecord.id, message: 'Album cache warming started' });
 
     // Run album cache warming asynchronously with conservative concurrency
+    // Pass the jobId so progress tracking works with SSE
     warmAlbumCache({
-      concurrency: 3
+      concurrency: 3,
+      jobId: jobRecord.id
     })
       .then(async () => {
         await db

@@ -210,6 +210,38 @@ The playlist runner (`playlist-runner.ts`) logs detailed metrics at each stage:
 - Cleanly closes database and Plex connections
 - Safe for Docker stop/restart
 
+## Genre Enrichment & Multi-Source Merging
+
+### Multi-Source Strategy (genre-enrichment.ts)
+
+The genre enrichment service implements **intelligent multi-source merging** to maximize genre coverage:
+
+**Enrichment Priority:**
+1. **Cache** - Check for existing cached genres (90-day TTL)
+2. **Plex Metadata** - Local metadata (Genre + Style tags for semantic categories, Mood tags for emotional attributes)
+3. **Last.fm** - Community-tagged genres (always attempted, even if Plex has data)
+4. **Spotify** - Fallback only if both Plex and Last.fm return nothing (conserves harsh rate limits)
+
+**Merging Behavior:**
+- Genres and moods are **merged** from all successful sources
+- Deduplication ensures no repeated genres
+- Source tracking uses comma-separated format: `"plex,lastfm"` or `"plex,spotify"`
+- Combined results cached for 90 days with all sources noted
+
+**Examples:**
+- Artist with both Plex and Last.fm: `source: "plex,lastfm"` with merged genres
+- Artist with only Last.fm: `source: "lastfm"`
+- Artist with no external data: `source: "plex"` (uses Spotify as fallback only if Plex also empty)
+
+**Benefits:**
+- **Better coverage**: Plex may have 3 genres, Last.fm adds 5 more → 8 total after dedup
+- **Mood preservation**: Only Plex provides moods, always included when available
+- **Rate limit friendly**: Spotify only called when Plex + Last.fm both fail
+
+**Album Enrichment:**
+- External APIs (Spotify/Last.fm) are **NOT** used for album-level lookups (prevents API thrashing)
+- Albums use: Cache → Plex album metadata → fallback to artist genres (which may be multi-source)
+
 ## Cache Warming System
 
 ### Architecture (cache-cli.ts)
@@ -217,15 +249,23 @@ The playlist runner (`playlist-runner.ts`) logs detailed metrics at each stage:
 **Incremental Warming** (`warmCache`)
 - Fetches all artists from Plex library
 - Filters out already-cached artists (90-day TTL)
-- Only fetches genres for uncached artists (skip_cached: true by default)
-- Tracked in `job_runs` table for observability
+- Fetches genres from **multiple sources** and merges results (see Multi-Source Strategy above)
+- Only processes uncached artists (skip_cached: true by default)
+- Tracks sources used per artist for transparency
+- Tracked in `job_runs` table with real-time progress updates
+
+**Album Cache Warming** (`warmAlbumCache`)
+- Fetches all albums from Plex library (via track enumeration)
+- Only uses Plex metadata (no external API calls to avoid thrashing)
+- Falls back to artist genres for albums without specific metadata
+- Progress tracking shows both metadata fetch and caching phases
 
 **Auto-Refresh** (`refreshExpiringCache`)
 - Finds cache entries expiring within 7 days
 - Proactively refreshes them to prevent cold-start delays
 - Runs daily at 2am (before playlist generation at 5am)
 
-**Rate Limiting** (metadata/providers/spotify.ts)
+**Rate Limiting** (metadata/providers/spotify.ts, lastfm.ts)
 - Very conservative concurrency: 2 concurrent requests for artist cache, 3 for album cache
 - Exponential backoff on 429 errors (1s → 2s → 4s → 8s → 16s)
 - Respects `Retry-After` headers but **caps retry delays at 5 minutes**
@@ -233,6 +273,6 @@ The playlist runner (`playlist-runner.ts`) logs detailed metrics at each stage:
 - Note: Spotify can request 50+ minute delays; we cap these to keep cache warming viable
 
 **Scheduled Jobs** (scheduler.ts)
-- `cache-warm`: Weekly full warming (Sunday 3am)
+- `cache-warm`: Weekly full warming with multi-source enrichment (Sunday 3am)
 - `cache-refresh`: Daily refresh of expiring entries (2am)
 - Both tracked in `job_runs` with start/finish times and status

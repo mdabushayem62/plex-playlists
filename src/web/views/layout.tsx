@@ -40,6 +40,20 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
               --spacing-large: 1rem;        /* 16px */
             }
 
+            /* Muted color overrides for dark theme */
+            [data-theme="dark"] {
+              --pico-primary: #4a8fc9;           /* Softer blue (was bright cyan) */
+              --pico-primary-hover: #5ba3d9;     /* Slightly brighter on hover */
+              --pico-primary-focus: rgba(74, 143, 201, 0.25);  /* Subtle focus ring */
+              --pico-primary-inverse: #ffffff;   /* White text on primary */
+
+              /* Soften link colors */
+              --pico-color: #c5d1e0;             /* Softer text color */
+              --pico-h1-color: #e8eef5;          /* Slightly brighter for headings */
+              --pico-h2-color: #e8eef5;
+              --pico-h3-color: #e8eef5;
+            }
+
             /* Override PicoCSS defaults for maximum density */
             * {
               --pico-spacing: 0.5rem;
@@ -346,6 +360,11 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
                 <li>
                   <a href="/actions" class={page === 'actions' ? 'active' : ''}>
                     Actions
+                  </a>
+                </li>
+                <li>
+                  <a href="/analytics" class={page === 'analytics' ? 'active' : ''}>
+                    Nerd Lines
                   </a>
                 </li>
                 <li>

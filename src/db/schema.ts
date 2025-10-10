@@ -52,8 +52,9 @@ export const genreCache = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     artistName: text('artist_name').notNull(),
-    genres: text('genres').notNull(), // JSON array of genre strings
-    source: text('source').notNull(), // 'spotify', 'lastfm', 'embedded', or 'manual'
+    genres: text('genres').notNull(), // JSON array of genre/style strings (Genre + Style from Plex)
+    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (Mood from Plex)
+    source: text('source').notNull(), // 'spotify', 'lastfm', 'plex', 'embedded', or 'manual'
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
@@ -70,8 +71,9 @@ export const albumGenreCache = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
     artistName: text('artist_name').notNull(),
     albumName: text('album_name').notNull(),
-    genres: text('genres').notNull(), // JSON array of genre strings
-    source: text('source').notNull(), // 'spotify', 'lastfm', 'embedded', or 'manual'
+    genres: text('genres').notNull(), // JSON array of genre/style strings (Genre + Style from Plex)
+    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (Mood from Plex)
+    source: text('source').notNull(), // 'spotify', 'lastfm', 'plex', 'embedded', or 'manual'
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
@@ -136,6 +138,33 @@ export const settingsHistory = sqliteTable(
   })
 );
 
+/**
+ * Custom playlists table for user-defined genre/mood combinations
+ * Managed via the web UI playlist builder
+ */
+export const customPlaylists = sqliteTable(
+  'custom_playlists',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(), // Display name for the playlist
+    genres: text('genres').notNull().default('[]'), // JSON array of genre strings (0-2)
+    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (0-2)
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    cron: text('cron'), // Optional custom schedule (null = use default weekly)
+    targetSize: integer('target_size').default(50), // Target playlist size
+    description: text('description'), // Optional user description
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`)
+  },
+  table => ({
+    nameIdx: uniqueIndex('custom_playlists_name_unique').on(table.name)
+  })
+);
+
 export type PlaylistRecord = typeof playlists.$inferSelect;
 export type PlaylistTrackRecord = typeof playlistTracks.$inferSelect;
 export type JobRunRecord = typeof jobRuns.$inferSelect;
@@ -144,3 +173,4 @@ export type AlbumGenreCacheRecord = typeof albumGenreCache.$inferSelect;
 export type SetupStateRecord = typeof setupState.$inferSelect;
 export type SettingRecord = typeof settings.$inferSelect;
 export type SettingsHistoryRecord = typeof settingsHistory.$inferSelect;
+export type CustomPlaylistRecord = typeof customPlaylists.$inferSelect;

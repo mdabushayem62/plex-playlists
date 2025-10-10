@@ -150,11 +150,16 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
           </ol>
         </nav>
 
-        <div style="margin-bottom: 2rem;">
-          <h2 style="margin-bottom: 0.5rem;">⚙️ Configuration</h2>
-          <p style="color: var(--pico-muted-color); margin: 0;">
-            Manage your Plex playlist generator settings. Most settings can be edited directly from the web UI.
-          </p>
+        <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+          <div>
+            <h2 style="margin-bottom: 0.5rem;">⚙️ Configuration</h2>
+            <p style="color: var(--pico-muted-color); margin: 0;">
+              Manage your Plex playlist generator settings. Most settings can be edited directly from the web UI.
+            </p>
+          </div>
+          <a href="/config/settings" class="outline" style="text-decoration: none; white-space: nowrap;">
+            ⚙️ Edit Settings
+          </a>
         </div>
 
         {/* Plex Server Configuration */}
@@ -244,9 +249,6 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
               <span class="config-card-icon">🔗</span>
               API Integrations
             </h3>
-            <a href="/config/environment" class="action-btn outline" style="text-decoration: none;">
-              ✏️ Edit Keys
-            </a>
           </div>
 
           <div class="config-row">
@@ -305,9 +307,6 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
               <span class="config-card-icon">⏰</span>
               Scheduling
             </h3>
-            <a href="/config/scheduling" class="action-btn outline" style="text-decoration: none;">
-              ✏️ Edit Schedule
-            </a>
           </div>
 
           <div class="config-row">
@@ -335,9 +334,6 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
               <span class="config-card-icon">🎯</span>
               Scoring Parameters
             </h3>
-            <a href="/config/scoring" class="action-btn outline" style="text-decoration: none;">
-              ✏️ Edit Parameters
-            </a>
           </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
@@ -382,19 +378,11 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
           </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-            <a href="/config/environment" style="text-decoration: none;">
+            <a href="/config/settings" style="text-decoration: none;">
               <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); transition: border-color 0.2s;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">🔐</div>
-                <div style="font-weight: 500;">Environment</div>
-                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">API keys & variables</div>
-              </div>
-            </a>
-
-            <a href="/config/scheduling" style="text-decoration: none;">
-              <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); transition: border-color 0.2s;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⏰</div>
-                <div style="font-weight: 500;">Scheduling</div>
-                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">Cron schedules</div>
+                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⚙️</div>
+                <div style="font-weight: 500;">All Settings</div>
+                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">Edit all configuration</div>
               </div>
             </a>
 

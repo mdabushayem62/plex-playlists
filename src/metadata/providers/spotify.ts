@@ -498,12 +498,17 @@ export class SpotifyClient {
   }
 }
 
-// Singleton instance
+// Singleton instance with caching
 let spotifyClient: SpotifyClient | null = null;
+let cachedClientId: string | undefined = undefined;
+let cachedClientSecret: string | undefined = undefined;
 
 export const getSpotifyClient = (clientId?: string, clientSecret?: string): SpotifyClient => {
-  if (!spotifyClient) {
+  // Reinitialize if credentials changed (including from undefined to defined)
+  if (!spotifyClient || cachedClientId !== clientId || cachedClientSecret !== clientSecret) {
     spotifyClient = new SpotifyClient(clientId, clientSecret);
+    cachedClientId = clientId;
+    cachedClientSecret = clientSecret;
   }
   return spotifyClient;
 };

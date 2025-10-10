@@ -331,12 +331,15 @@ export class LastFmClient {
   }
 }
 
-// Singleton instance
+// Singleton instance with caching
 let lastfmClient: LastFmClient | null = null;
+let cachedApiKey: string | undefined = undefined;
 
 export const getLastFmClient = (apiKey?: string): LastFmClient => {
-  if (!lastfmClient) {
+  // Reinitialize if API key changed (including from undefined to defined)
+  if (!lastfmClient || cachedApiKey !== apiKey) {
     lastfmClient = new LastFmClient(apiKey);
+    cachedApiKey = apiKey;
   }
   return lastfmClient;
 };

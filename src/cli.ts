@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { getGenreWindows, TIME_WINDOWS, type PlaylistWindow } from './windows.js';
 import { createApp } from './index.js';
 import { logger } from './logger.js';
@@ -7,7 +10,15 @@ import { importRatingsFromCSVs } from './import/importer-fast.js';
 import { closeDb } from './db/index.js';
 import { resetPlexServer } from './plex/client.js';
 import { warmCache, warmAlbumCache, getCacheStats, clearExpiredCache, clearAllCache } from './cache/cache-cli.js';
+import { diagnoseHistory, printDiagnostics } from './history/history-diagnostics.js';
 import { APP_ENV } from './config.js';
+
+// Load config from /config/.env if it exists (Docker setup)
+const configEnvPath = join(process.env.CONFIG_DIR || './config', '.env');
+if (existsSync(configEnvPath)) {
+  dotenvConfig({ path: configEnvPath, override: true });
+  logger.debug({ path: configEnvPath }, 'loaded config from /config/.env');
+}
 
 const usage = `Usage:
   plex-playlists --help                        Show this help message
@@ -16,6 +27,7 @@ const usage = `Usage:
     Time windows: morning, afternoon, evening
     Genre windows: (loaded from playlists.config.json + auto-discovery)
   plex-playlists run-all                       Run all three daily playlists sequentially
+  plex-playlists history diagnose              Test Plex history tracking and provide recommendations
   plex-playlists cache warm [--dry-run] [--concurrency=N]
                                                Pre-populate artist genre cache
   plex-playlists cache warm-albums [--dry-run] [--concurrency=N]
@@ -85,6 +97,27 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'history') {
+    const subcommand = args[1];
+
+    if (subcommand === 'diagnose') {
+      try {
+        const diagnostics = await diagnoseHistory();
+        printDiagnostics(diagnostics);
+      } finally {
+        closeDb();
+        resetPlexServer();
+      }
+      return;
+    }
+
+    console.error(`Error: Unknown history subcommand '${subcommand}'`);
+    console.error('\nAvailable subcommands:');
+    console.error('  diagnose  - Test Plex history tracking and provide recommendations');
+    process.exitCode = 1;
+    return;
+  }
+
   if (command === 'import') {
     const csvDir = args[1];
     if (!csvDir) {
@@ -144,7 +177,7 @@ async function main(): Promise<void> {
 
       try {
         console.log(
-          `\nWarming genre cache for all Plex artists (concurrency: ${concurrency}, safely under Spotify rate limits)${dryRun ? ' [DRY RUN]' : ''}...\n`
+          `\nWarming genre cache for all Plex artists (concurrency: ${concurrency})${dryRun ? ' [DRY RUN]' : ''}...\n`
         );
 
         const result = await warmCache({

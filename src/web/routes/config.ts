@@ -178,89 +178,6 @@ configRouter.get('/settings', async (req, res) => {
   }
 });
 
-/**
- * Scoring parameters detail page
- */
-configRouter.get('/scoring', async (req, res) => {
-  try {
-    const setupComplete = await getSetupStatus();
-
-    // Get settings with metadata
-    const allSettings = await getAllSettingsWithMetadata();
-
-    // Filter to only scoring category
-    const scoringSettings = Object.entries(allSettings)
-      .filter(([, metadata]) => metadata.category === 'scoring')
-      .reduce(
-        (acc, [key, metadata]) => {
-          acc[key] = metadata;
-          return acc;
-        },
-        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
-      );
-
-    // Get recent change history
-    const history = await getSettingsHistory(20);
-    const scoringHistory = history.filter(h =>
-      Object.keys(scoringSettings).includes(h.settingKey)
-    );
-
-    // Render TSX component
-    const { ScoringPage } = await import(getViewPath('config/scoring.tsx'));
-    const html = ScoringPage({
-      scoringSettings,
-      history: scoringHistory,
-      page: 'config',
-      setupComplete,
-      breadcrumbs: [
-        { label: 'Dashboard', url: '/' },
-        { label: 'Configuration', url: '/config' },
-        { label: 'Scoring Parameters', url: null }
-      ]
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error) {
-    console.error('Scoring page error:', error);
-    res.status(500).send('Internal server error');
-  }
-});
-
-/**
- * Scheduling configuration detail page
- */
-configRouter.get('/scheduling', async (req, res) => {
-  try {
-    const setupComplete = await getSetupStatus();
-
-    const schedules = {
-      dailyPlaylists: {
-        cron: APP_ENV.DAILY_PLAYLISTS_CRON,
-        description: 'Daily playlists generation time (all three run sequentially)',
-        default: '0 5 * * * (5:00 AM daily)'
-      }
-    };
-
-    // Render TSX component
-    const { SchedulingPage } = await import(getViewPath('config/scheduling.tsx'));
-    const html = SchedulingPage({
-      schedules,
-      page: 'config',
-      setupComplete,
-      breadcrumbs: [
-        { label: 'Dashboard', url: '/' },
-        { label: 'Configuration', url: '/config' },
-        { label: 'Scheduling', url: null }
-      ]
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch {
-    res.status(500).send('Internal server error');
-  }
-});
 
 /**
  * Playlist configuration page
@@ -304,148 +221,7 @@ configRouter.get('/playlists', async (req, res) => {
   }
 });
 
-/**
- * Environment variables page
- */
-configRouter.get('/environment', async (req, res) => {
-  try {
-    const setupComplete = await getSetupStatus();
 
-    // Get all settings with metadata for inline editing
-    const allSettings = await getAllSettingsWithMetadata();
-
-    // Filter to Plex and API categories
-    const plexSettings = Object.entries(allSettings)
-      .filter(([, metadata]) => metadata.category === 'plex')
-      .reduce(
-        (acc, [key, metadata]) => {
-          acc[key] = metadata;
-          return acc;
-        },
-        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
-      );
-
-    const apiSettings = Object.entries(allSettings)
-      .filter(([, metadata]) => metadata.category === 'api')
-      .reduce(
-        (acc, [key, metadata]) => {
-          acc[key] = metadata;
-          return acc;
-        },
-        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
-      );
-
-    // Show all non-sensitive env vars (read-only info)
-    const envVars = {
-      database: {
-        path: APP_ENV.DATABASE_PATH
-      },
-      webUi: {
-        enabled: APP_ENV.WEB_UI_ENABLED,
-        port: APP_ENV.WEB_UI_PORT
-      }
-    };
-
-    // Render TSX component
-    const { EnvironmentPage } = await import(getViewPath('config/environment.tsx'));
-    const html = EnvironmentPage({
-      plexSettings,
-      apiSettings,
-      envVars,
-      page: 'config',
-      setupComplete,
-      breadcrumbs: [
-        { label: 'Dashboard', url: '/' },
-        { label: 'Configuration', url: '/config' },
-        { label: 'Environment', url: null }
-      ]
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch {
-    res.status(500).send('Internal server error');
-  }
-});
-
-/**
- * Save scoring parameters
- */
-configRouter.post('/scoring/save', async (req, res) => {
-  try {
-    const {
-      halfLifeDays,
-      maxGenreShare,
-      playCountSaturation,
-      playlistTargetSize,
-      maxPerArtist,
-      historyDays,
-      fallbackLimit
-    } = req.body;
-
-    // Validate numbers
-    const params: Array<{ key: SettingKey; value: unknown }> = [
-      { key: 'half_life_days', value: halfLifeDays },
-      { key: 'max_genre_share', value: maxGenreShare },
-      { key: 'play_count_saturation', value: playCountSaturation },
-      { key: 'playlist_target_size', value: playlistTargetSize },
-      { key: 'max_per_artist', value: maxPerArtist },
-      { key: 'history_days', value: historyDays },
-      { key: 'fallback_limit', value: fallbackLimit }
-    ];
-
-    for (const param of params) {
-      if (param.value !== undefined && param.value !== '') {
-        await setSettingWithWriteback(param.key, String(param.value), true);
-      }
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
-    res.status(500).json({ error: errorMsg });
-  }
-});
-
-/**
- * Save scheduling configuration
- */
-configRouter.post('/scheduling/save', async (req, res) => {
-  try {
-    const { dailyPlaylistsCron } = req.body;
-
-    if (dailyPlaylistsCron) await setSettingWithWriteback('daily_playlists_cron', dailyPlaylistsCron, true);
-
-    res.json({ success: true });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
-    res.status(500).json({ error: errorMsg });
-  }
-});
-
-/**
- * Save API keys
- */
-configRouter.post('/environment/save-api-keys', async (req, res) => {
-  try {
-    const { lastfmApiKey, spotifyClientId, spotifyClientSecret } = req.body;
-
-    if (lastfmApiKey !== undefined) {
-      await setSettingWithWriteback('lastfm_api_key', lastfmApiKey || null, true);
-    }
-    if (spotifyClientId !== undefined) {
-      await setSettingWithWriteback('spotify_client_id', spotifyClientId || null, true);
-    }
-    if (spotifyClientSecret !== undefined) {
-      await setSettingWithWriteback('spotify_client_secret', spotifyClientSecret || null, true);
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
-    res.status(500).json({ error: errorMsg });
-  }
-});
 
 /**
  * Save playlist configuration
@@ -523,6 +299,12 @@ configRouter.put('/api/settings/:key', async (req, res) => {
     // Log to history
     await recordSettingChange(key, oldValue, String(value), 'web_ui');
 
+    // Reset Plex server cache if credentials changed
+    if (key === 'plex_base_url' || key === 'plex_auth_token') {
+      const { resetPlexServer } = await import('../../plex/client.js');
+      resetPlexServer();
+    }
+
     // Set toast notification headers for HTMX
     res.setHeader('X-Toast-Message', `${key} updated successfully`);
     res.setHeader('X-Toast-Type', 'success');
@@ -570,6 +352,7 @@ configRouter.post('/api/settings/batch', async (req, res) => {
     }
 
     // All valid - proceed with updates
+    let plexCredsChanged = false;
     for (const [key, value] of Object.entries(settingsToUpdate)) {
       const typedKey = key as SettingKey;
       const oldValue = await getSetting(typedKey);
@@ -582,6 +365,16 @@ configRouter.post('/api/settings/batch', async (req, res) => {
       if (RESTART_REQUIRED_SETTINGS.includes(typedKey)) {
         requiresRestart = true;
       }
+
+      if (typedKey === 'plex_base_url' || typedKey === 'plex_auth_token') {
+        plexCredsChanged = true;
+      }
+    }
+
+    // Reset Plex server cache if credentials changed
+    if (plexCredsChanged) {
+      const { resetPlexServer } = await import('../../plex/client.js');
+      resetPlexServer();
     }
 
     res.json({ success: true, results, requiresRestart });

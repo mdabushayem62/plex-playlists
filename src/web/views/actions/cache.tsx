@@ -65,14 +65,6 @@ function StatsCard({ title, stats }: { title: string; stats: CacheStats }): JSX.
             <p>{source}</p>
           </div>
         ))}
-        <div class="stat-card">
-          <h3>{stats.expired}</h3>
-          <p>Expired</p>
-        </div>
-        <div class="stat-card">
-          <h3>{stats.expiringWithin7Days}</h3>
-          <p>Expiring Soon</p>
-        </div>
       </div>
 
       {(stats.oldestEntry || stats.newestEntry) && (
@@ -90,6 +82,7 @@ export function CachePage(props: CachePageProps): JSX.Element {
 
   return (
     <Layout title="Cache Management" page={page} setupComplete={setupComplete}>
+      <>
       <div>
         {/* Breadcrumbs */}
         <nav aria-label="breadcrumb" style="margin-bottom: 1rem;">
@@ -116,6 +109,37 @@ export function CachePage(props: CachePageProps): JSX.Element {
         {/* Actions */}
         <section style="margin-bottom: 2rem;">
           <h3>Actions</h3>
+
+          {/* Artist Cache Progress */}
+          <div id="artist-cache-progress" style="display: none; background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <div>
+                <strong id="artist-cache-progress-label">Warming artist cache...</strong>
+                <div style="color: var(--pico-muted-color); font-size: 0.875rem;" id="artist-cache-progress-message">Starting...</div>
+              </div>
+              <div style="text-align: right;">
+                <div id="artist-cache-progress-percent" style="font-size: 1.25rem; font-weight: bold;">0%</div>
+                <div id="artist-cache-progress-eta" style="color: var(--pico-muted-color); font-size: 0.75rem;">calculating...</div>
+              </div>
+            </div>
+            <progress id="artist-cache-progress-bar" value="0" max="100" style="width: 100%;"></progress>
+          </div>
+
+          {/* Album Cache Progress */}
+          <div id="album-cache-progress" style="display: none; background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <div>
+                <strong id="album-cache-progress-label">Warming album cache...</strong>
+                <div style="color: var(--pico-muted-color); font-size: 0.875rem;" id="album-cache-progress-message">Starting...</div>
+              </div>
+              <div style="text-align: right;">
+                <div id="album-cache-progress-percent" style="font-size: 1.25rem; font-weight: bold;">0%</div>
+                <div id="album-cache-progress-eta" style="color: var(--pico-muted-color); font-size: 0.75rem;">calculating...</div>
+              </div>
+            </div>
+            <progress id="album-cache-progress-bar" value="0" max="100" style="width: 100%;"></progress>
+          </div>
+
           <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
             <button id="warmCacheBtn" class="secondary" onclick="warmCache()">
               🔥 Warm Artist Cache
@@ -123,11 +147,6 @@ export function CachePage(props: CachePageProps): JSX.Element {
             <button id="warmAlbumCacheBtn" class="secondary" onclick="warmAlbumCache()">
               🔥 Warm Album Cache
             </button>
-            <form method="POST" action="/actions/cache/clear-expired" style="display: inline;">
-              <button type="submit" class="secondary" disabled={stats.artists.expired + stats.albums.expired === 0}>
-                Clear Expired ({stats.artists.expired + stats.albums.expired})
-              </button>
-            </form>
             <button
               id="clearAllBtn"
               class="secondary"
@@ -153,7 +172,7 @@ export function CachePage(props: CachePageProps): JSX.Element {
 
         {/* Artist Entries */}
         <section style="margin-bottom: 2rem;">
-          <h3>Artist Cache Sample (First 50)</h3>
+          <h3>Artist Cache Sample (Latest 50)</h3>
           {artistEntries.length === 0 ? (
             <p style="color: var(--pico-muted-color);">
               No cache entries yet. Generate a playlist from the <a href="/actions">Actions</a> page to populate the cache.
@@ -168,7 +187,6 @@ export function CachePage(props: CachePageProps): JSX.Element {
                       <th>Genres</th>
                       <th>Source</th>
                       <th>Cached</th>
-                      <th>Expires</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -179,24 +197,15 @@ export function CachePage(props: CachePageProps): JSX.Element {
                       } catch {
                         genres = 'Invalid';
                       }
-                      const expired = entry.expiresAt && new Date(entry.expiresAt) < new Date();
 
                       return (
-                        <tr style={expired ? 'opacity: 0.5;' : ''}>
+                        <tr>
                           <td><strong>{entry.artistName}</strong></td>
                           <td style="font-size: 0.875rem;">
                             {genres.length > 50 ? genres.substring(0, 50) + '...' : genres}
                           </td>
                           <td>{entry.source}</td>
                           <td style="font-size: 0.875rem;">{timeAgo(entry.cachedAt)}</td>
-                          <td style="font-size: 0.875rem;">
-                            {entry.expiresAt
-                              ? expired
-                                ? <span style="color: var(--pico-del-color);">Expired</span>
-                                : timeAgo(entry.expiresAt)
-                              : 'Never'
-                            }
-                          </td>
                         </tr>
                       );
                     })}
@@ -205,7 +214,7 @@ export function CachePage(props: CachePageProps): JSX.Element {
               </div>
               {stats.artists.total > 50 && (
                 <p style="color: var(--pico-muted-color); margin-top: 0.5rem; font-size: 0.875rem;">
-                  Showing first 50 of {stats.artists.total} entries.
+                  Showing latest 50 of {stats.artists.total} entries.
                 </p>
               )}
             </>
@@ -214,7 +223,7 @@ export function CachePage(props: CachePageProps): JSX.Element {
 
         {/* Album Entries */}
         <section>
-          <h3>Album Cache Sample (First 50)</h3>
+          <h3>Album Cache Sample (Latest 50)</h3>
           {albumEntries.length === 0 ? (
             <p style="color: var(--pico-muted-color);">
               No album cache entries yet. Use "Warm Album Cache" to populate.
@@ -230,7 +239,6 @@ export function CachePage(props: CachePageProps): JSX.Element {
                       <th>Genres</th>
                       <th>Source</th>
                       <th>Cached</th>
-                      <th>Expires</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -241,10 +249,9 @@ export function CachePage(props: CachePageProps): JSX.Element {
                       } catch {
                         genres = 'Invalid';
                       }
-                      const expired = entry.expiresAt && new Date(entry.expiresAt) < new Date();
 
                       return (
-                        <tr style={expired ? 'opacity: 0.5;' : ''}>
+                        <tr>
                           <td><strong>{(entry as any).albumName || 'Unknown'}</strong></td>
                           <td>{entry.artistName}</td>
                           <td style="font-size: 0.875rem;">
@@ -252,14 +259,6 @@ export function CachePage(props: CachePageProps): JSX.Element {
                           </td>
                           <td>{entry.source}</td>
                           <td style="font-size: 0.875rem;">{timeAgo(entry.cachedAt)}</td>
-                          <td style="font-size: 0.875rem;">
-                            {entry.expiresAt
-                              ? expired
-                                ? <span style="color: var(--pico-del-color);">Expired</span>
-                                : timeAgo(entry.expiresAt)
-                              : 'Never'
-                            }
-                          </td>
                         </tr>
                       );
                     })}
@@ -268,7 +267,7 @@ export function CachePage(props: CachePageProps): JSX.Element {
               </div>
               {stats.albums.total > 50 && (
                 <p style="color: var(--pico-muted-color); margin-top: 0.5rem; font-size: 0.875rem;">
-                  Showing first 50 of {stats.albums.total} entries.
+                  Showing latest 50 of {stats.albums.total} entries.
                 </p>
               )}
             </>
@@ -276,7 +275,10 @@ export function CachePage(props: CachePageProps): JSX.Element {
         </section>
       </div>
 
+      {/* Load shared job monitoring module and cache.js */}
+      <script src="/js/job-monitor.js"></script>
       <script src="/js/cache.js"></script>
+      </>
     </Layout>
   );
 }

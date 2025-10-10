@@ -69,13 +69,8 @@ export function DashboardPage(props: DashboardPageProps) {
     page
   } = props;
 
-  // Calculate recent errors
-  const recentErrors = jobs.filter(j => j.status === 'failed').slice(0, 3);
-  const last24hErrors = jobs.filter(j => {
-    const jobTime = new Date(j.startedAt).getTime();
-    const now = Date.now();
-    return j.status === 'failed' && (now - jobTime) < 24 * 60 * 60 * 1000;
-  });
+  // Get most recent error for activity section (max 1)
+  const mostRecentError = jobs.find(j => j.status === 'failed');
 
   return (
     <Layout title="Dashboard" page={page} setupComplete={setupComplete}>
@@ -84,7 +79,7 @@ export function DashboardPage(props: DashboardPageProps) {
 
         {/* Setup Wizard Banner */}
         {!setupComplete && (
-          <div style="background: var(--pico-primary); padding: var(--spacing-normal); border-radius: 0.5rem; margin-bottom: var(--spacing-section);">
+          <div style="background: var(--pico-card-background-color); padding: var(--spacing-normal); border-radius: 0.5rem; margin-bottom: var(--spacing-section); border-left: 4px solid var(--pico-primary);">
             <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;">👋 Welcome! Let's get you set up</h3>
             <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem;">
               Run the setup wizard to configure your playlist generator and learn about all the features.
@@ -116,46 +111,7 @@ export function DashboardPage(props: DashboardPageProps) {
           </div>
         </div>
 
-        {/* Recent Errors Alert */}
-        {recentErrors.length > 0 && (
-          <section style="background: var(--pico-card-background-color); padding: var(--spacing-normal); border-radius: 0.5rem; border-left: 4px solid var(--pico-del-color);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-compact);">
-              <h3 style="margin: 0; color: var(--pico-del-color); font-size: 1.1rem;">⚠️ Recent Errors</h3>
-              <div>
-                <span style="font-size: 0.875rem; color: var(--pico-muted-color);">
-                  {last24hErrors.length} error{last24hErrors.length !== 1 ? 's' : ''} in last 24h
-                </span>
-                <a href="/actions/history?status=failed" style="font-size: 0.875rem; margin-left: 0.75rem;">View All →</a>
-              </div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: var(--spacing-compact);">
-              {recentErrors.map(job => (
-                <div style="background: var(--pico-background-color); padding: var(--spacing-compact); border-radius: 0.25rem;">
-                  <div style="display: flex; justify-content: space-between; align-items: start; gap: var(--spacing-compact);">
-                    <div style="flex: 1;">
-                      <strong style="color: var(--pico-del-color); font-size: 0.95rem;">{job.window}</strong>
-                      <div style="color: var(--pico-muted-color); font-size: 0.85rem; margin-top: 0.25rem;">
-                        Failed {timeAgo(job.startedAt)}
-                      </div>
-                      {job.error && (
-                        <div style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--pico-muted-color); font-family: monospace; background: var(--pico-card-background-color); padding: 0.5rem; border-radius: 0.25rem;">
-                          {job.error.length > 120 ? job.error.substring(0, 120) + '...' : job.error}
-                        </div>
-                      )}
-                    </div>
-                    <form method="POST" action={`/actions/generate/${job.window}`} style="margin: 0;">
-                      <button type="submit" class="action-btn secondary" style="margin: 0; white-space: nowrap;" title="Retry playlist generation">
-                        🔄 Retry
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Current Playlists */}
+        {/* Your Playlists */}
         <section>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-normal);">
             <h3 style="margin: 0;">Your Playlists</h3>
@@ -229,35 +185,65 @@ export function DashboardPage(props: DashboardPageProps) {
           {jobs.length === 0 ? (
             <p style="color: var(--pico-muted-color);">No job history yet.</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Window</th>
-                  <th>Status</th>
-                  <th>Started</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map(job => {
-                  const duration = job.finishedAt && job.startedAt
-                    ? Math.round((new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)
-                    : null;
-                  return (
-                    <tr>
-                      <td>{job.window}</td>
-                      <td>
-                        <span class={`status-badge status-${job.status}`}>
-                          {job.status}
-                        </span>
-                      </td>
-                      <td>{timeAgo(job.startedAt)}</td>
-                      <td>{duration ? duration + 's' : job.status === 'running' ? '...' : '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <>
+              {/* Most Recent Error (if exists) */}
+              {mostRecentError && (
+                <div style="background: var(--pico-card-background-color); padding: var(--spacing-normal); border-radius: 0.5rem; border-left: 4px solid var(--pico-del-color); margin-bottom: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: start; gap: var(--spacing-compact);">
+                    <div style="flex: 1;">
+                      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <strong style="color: var(--pico-del-color); font-size: 0.95rem;">⚠️ {mostRecentError.window}</strong>
+                        <span class="status-badge status-failed" style="font-size: 0.7rem;">failed</span>
+                      </div>
+                      <div style="color: var(--pico-muted-color); font-size: 0.85rem;">
+                        {timeAgo(mostRecentError.startedAt)}
+                      </div>
+                      {mostRecentError.error && (
+                        <div style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--pico-muted-color); font-family: monospace; background: var(--pico-background-color); padding: 0.5rem; border-radius: 0.25rem;">
+                          {mostRecentError.error.length > 120 ? mostRecentError.error.substring(0, 120) + '...' : mostRecentError.error}
+                        </div>
+                      )}
+                    </div>
+                    <form method="POST" action={`/actions/generate/${mostRecentError.window}`} style="margin: 0;">
+                      <button type="submit" class="action-btn secondary" style="margin: 0; white-space: nowrap;" title="Retry playlist generation">
+                        🔄 Retry
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Jobs Table (max 5 items) */}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Window</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.slice(0, 5).map(job => {
+                    const duration = job.finishedAt && job.startedAt
+                      ? Math.round((new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)
+                      : null;
+                    return (
+                      <tr>
+                        <td>{job.window}</td>
+                        <td>
+                          <span class={`status-badge status-${job.status}`}>
+                            {job.status}
+                          </span>
+                        </td>
+                        <td>{timeAgo(job.startedAt)}</td>
+                        <td>{duration ? duration + 's' : job.status === 'running' ? '...' : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
           )}
         </section>
 

@@ -2,47 +2,48 @@ import { readFileSync } from 'node:fs';
 import { logger } from '../logger.js';
 import { getConfigFilePath } from '../init.js';
 
-export interface PinnedPlaylistConfig {
+/**
+ * Custom playlist configuration (user-defined genre/mood combinations)
+ * These are managed via the web UI and stored in the database
+ */
+export interface CustomPlaylistConfig {
+  id?: number; // Database ID
   name: string;
-  genre: string;
-  cron: string;
+  genres: string[]; // 0-2 genres
+  moods: string[]; // 0-2 moods
   enabled: boolean;
+  cron?: string; // Optional custom schedule, defaults to weekly
+  targetSize?: number; // Optional target playlist size
   description?: string;
 }
 
-export interface AutoDiscoverConfig {
+/**
+ * Auto-discovery settings for mood-based playlists
+ */
+export interface MoodDiscoveryConfig {
   enabled: boolean;
-  minArtists: number;
-  maxPlaylists: number;
-  exclude: string[];
-  schedule: string;
-  description?: string;
+  minTracks: number; // Minimum tracks with mood to create playlist
+  maxPlaylists: number; // Max number of mood playlists to generate
+  schedule: string; // Cron schedule for regeneration
+  considerStarRatings: boolean; // Weight by star ratings (4-5 stars)
+  considerPlayCount: boolean; // Weight by play frequency
 }
 
 export interface PlaylistConfig {
-  genrePlaylists: {
-    pinned: PinnedPlaylistConfig[];
-    autoDiscover: AutoDiscoverConfig;
-  };
+  moodDiscovery: MoodDiscoveryConfig;
+  customPlaylists: CustomPlaylistConfig[];
 }
 
 const DEFAULT_CONFIG: PlaylistConfig = {
-  genrePlaylists: {
-    pinned: [
-      { name: 'synthwave', genre: 'synthwave', cron: '0 7 * * 1', enabled: true },
-      { name: 'psytrance', genre: 'psytrance', cron: '0 8 * * 1', enabled: true },
-      { name: 'dubstep', genre: 'dubstep', cron: '0 9 * * 1', enabled: true },
-      { name: 'trance', genre: 'trance', cron: '0 10 * * 1', enabled: true },
-      { name: 'power-metal', genre: 'power metal', cron: '0 11 * * 1', enabled: true }
-    ],
-    autoDiscover: {
-      enabled: false,
-      minArtists: 5,
-      maxPlaylists: 20,
-      exclude: ['electronic', 'edm', 'electronica'],
-      schedule: '0 12 * * 1'
-    }
-  }
+  moodDiscovery: {
+    enabled: true,
+    minTracks: 20, // Need at least 20 tracks with a mood to create playlist
+    maxPlaylists: 10, // Generate up to 10 mood playlists
+    schedule: '0 6 * * 0', // Sunday 6am (weekly refresh)
+    considerStarRatings: true,
+    considerPlayCount: true
+  },
+  customPlaylists: []
 };
 
 let cachedConfig: PlaylistConfig | null = null;
@@ -60,22 +61,20 @@ export function loadPlaylistConfig(configPath?: string): PlaylistConfig {
     const config = JSON.parse(content) as PlaylistConfig;
 
     // Validate config structure
-    if (!config.genrePlaylists) {
-      throw new Error('Missing genrePlaylists section');
+    if (!config.moodDiscovery) {
+      logger.warn('Missing moodDiscovery section, using defaults');
+      config.moodDiscovery = DEFAULT_CONFIG.moodDiscovery;
     }
 
-    if (!Array.isArray(config.genrePlaylists.pinned)) {
-      throw new Error('genrePlaylists.pinned must be an array');
-    }
-
-    if (!config.genrePlaylists.autoDiscover) {
-      throw new Error('Missing genrePlaylists.autoDiscover section');
+    if (!Array.isArray(config.customPlaylists)) {
+      logger.warn('customPlaylists must be an array, using empty array');
+      config.customPlaylists = [];
     }
 
     logger.info(
       {
-        pinnedPlaylists: config.genrePlaylists.pinned.filter(p => p.enabled).length,
-        autoDiscoverEnabled: config.genrePlaylists.autoDiscover.enabled
+        customPlaylists: config.customPlaylists.filter(p => p.enabled).length,
+        moodDiscoveryEnabled: config.moodDiscovery.enabled
       },
       'loaded playlist config'
     );
@@ -94,12 +93,17 @@ export function reloadPlaylistConfig(): void {
   cachedConfig = null;
 }
 
-export function getEnabledGenrePlaylists(): PinnedPlaylistConfig[] {
+export function getMoodDiscoveryConfig(): MoodDiscoveryConfig {
   const config = loadPlaylistConfig();
-  return config.genrePlaylists.pinned.filter(p => p.enabled);
+  return config.moodDiscovery;
 }
 
-export function getAutoDiscoverConfig(): AutoDiscoverConfig {
+export function getCustomPlaylists(): CustomPlaylistConfig[] {
   const config = loadPlaylistConfig();
-  return config.genrePlaylists.autoDiscover;
+  return config.customPlaylists.filter(p => p.enabled);
+}
+
+export function getAllCustomPlaylists(): CustomPlaylistConfig[] {
+  const config = loadPlaylistConfig();
+  return config.customPlaylists;
 }

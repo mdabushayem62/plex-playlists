@@ -16,13 +16,11 @@ export interface CompletePageProps {
   steps: readonly SetupStep[];
   currentStepIndex: number;
   state: unknown;
-  morningCron: string;
-  afternoonCron: string;
-  eveningCron: string;
+  dailyPlaylistsCron: string;
 }
 
 export function CompletePage(props: CompletePageProps): JSX.Element {
-  const { steps, currentStepIndex, morningCron, afternoonCron, eveningCron } = props;
+  const { steps, currentStepIndex, dailyPlaylistsCron } = props;
 
   return (
     <SetupLayout title="Complete" steps={steps} currentStepIndex={currentStepIndex}>
@@ -34,21 +32,20 @@ export function CompletePage(props: CompletePageProps): JSX.Element {
         </p>
 
         {/* Next Scheduled Generation */}
-        <div style="background: var(--pico-primary); padding: 1.5rem; border-radius: 0.5rem; margin: 2rem auto; max-width: 600px; text-align: left;">
+        <div style="background: var(--pico-card-background-color); padding: 1.5rem; border-radius: 0.5rem; margin: 2rem auto; max-width: 600px; text-align: left; border-left: 4px solid var(--pico-primary);">
           <h3 style="margin-top: 0;">📅 Your Playlists Will Be Generated Automatically</h3>
-          <div style="display: grid; gap: 0.5rem; margin: 1rem 0; font-size: 0.875rem;">
-            <div style="display: flex; justify-content: space-between; padding: 0.5rem; background: rgba(255,255,255,0.1); border-radius: 0.25rem;">
-              <span><strong>🌅 Morning Mix</strong></span>
-              <span style="font-family: monospace;">{morningCron || '6:00 AM daily'}</span>
+          <div style="padding: 1rem; background: var(--pico-background-color); border-radius: 0.25rem; margin: 1rem 0;">
+            <div style="font-size: 0.875rem; margin-bottom: 0.75rem;">
+              <strong>Schedule:</strong> <span style="font-family: monospace; color: var(--pico-primary);">{dailyPlaylistsCron || '0 5 * * *'}</span> (5:00 AM daily)
             </div>
-            <div style="display: flex; justify-content: space-between; padding: 0.5rem; background: rgba(255,255,255,0.1); border-radius: 0.25rem;">
-              <span><strong>☀️ Afternoon Mix</strong></span>
-              <span style="font-family: monospace;">{afternoonCron || '12:00 PM daily'}</span>
+            <div style="font-size: 0.875rem; color: var(--pico-muted-color);">
+              All three daily playlists are generated together:
             </div>
-            <div style="display: flex; justify-content: space-between; padding: 0.5rem; background: rgba(255,255,255,0.1); border-radius: 0.25rem;">
-              <span><strong>🌙 Evening Mix</strong></span>
-              <span style="font-family: monospace;">{eveningCron || '6:00 PM daily'}</span>
-            </div>
+            <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.875rem; color: var(--pico-muted-color);">
+              <li>🌅 Morning Mix (6am-12pm history)</li>
+              <li>☀️ Afternoon Mix (12pm-6pm history)</li>
+              <li>🌙 Evening Mix (6pm-12am history)</li>
+            </ul>
           </div>
           <p style="margin: 1rem 0 0 0; font-size: 0.875rem;">
             💡 <strong>Too early?</strong> Generate playlists immediately using the Actions page below.
