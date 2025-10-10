@@ -22,6 +22,7 @@ npm run test:watch       # Run tests in watch mode
 ```bash
 plex-playlists start              # Start scheduler (cron-based)
 plex-playlists run <window>       # Run single window (morning|afternoon|evening)
+plex-playlists run-all            # Run all three daily playlists sequentially
 ```
 
 ### Database
@@ -29,6 +30,17 @@ plex-playlists run <window>       # Run single window (morning|afternoon|evening
 npx drizzle-kit generate          # Generate migrations (after schema changes)
 npx drizzle-kit studio            # Open Drizzle Studio
 # Note: Migrations run automatically on app startup
+```
+
+### Cache Management
+```bash
+plex-playlists cache warm [--dry-run] [--concurrency=N]
+                                  # Warm genre cache for all Plex artists
+                                  # Default concurrency: 2 (very conservative to avoid rate limits)
+                                  # Skips already-cached artists (incremental)
+                                  # Tracked in job_runs table
+plex-playlists cache stats        # Show cache statistics (total, by source, expiring)
+plex-playlists cache clear [--all]# Clear expired (or all) cache entries
 ```
 
 ## Architecture
@@ -100,7 +112,7 @@ HistoryEntry[] → AggregatedHistory[] → CandidateTrack[] → Selected[] → P
 
 - `playlists`: Window-unique playlists with Plex rating key
 - `playlist_tracks`: Tracks with position and scores
-- `history_cache`: Cached 30-day play counts per window (unused in current flow but schema exists)
+- `genre_cache`: Cached genre metadata from Spotify/Last.fm with TTL
 - `job_runs`: Job execution history (start, finish, status, errors)
 
 **Note**: Migrations run automatically on first database connection (`db/index.ts:runMigrations()`)
@@ -112,7 +124,28 @@ All config via environment variables (validated with `envalid` in `config.ts`):
 - `PLEX_BASE_URL`: Plex server URL (required)
 - `PLEX_AUTH_TOKEN`: Plex X-Plex-Token (required)
 - `DATABASE_PATH`: SQLite file path (default: `./data/plex-playlists.db`)
-- `MORNING_CRON`, `AFTERNOON_CRON`, `EVENING_CRON`: Cron schedules (defaults: 6am, 12pm, 6pm)
+
+### Scheduling Options
+
+**Daily Playlists**:
+- `DAILY_PLAYLISTS_CRON`: Cron schedule for all three daily playlists (default: `0 5 * * *`)
+- All three playlists (morning, afternoon, evening) run sequentially at 5am
+- Time-based history filtering is preserved (morning playlist still filters 6-11am history)
+- Ensures playlists are ready before you wake up
+
+**Cache Warming** (Automatic Background Jobs):
+- `CACHE_WARM_CONCURRENCY`: Max concurrent requests for Spotify/Last.fm
+  - Artist cache: 2 concurrent requests (very conservative)
+  - Album cache: 3 concurrent requests
+  - Retry delays capped at 5 minutes to prevent hour-long stalls
+- `CACHE_WARM_CRON`: Weekly full cache warming schedule (default: `0 3 * * 0` - Sunday 3am)
+  - Incrementally fetches genres only for uncached artists
+  - Tracked in `job_runs` table with success/failure status
+- `CACHE_REFRESH_CRON`: Daily refresh of expiring entries (default: `0 2 * * *` - 2am)
+  - Refreshes cache entries expiring within 7 days
+  - Runs before daily playlist generation to ensure fresh metadata
+
+**Other Parameters**:
 - `HALF_LIFE_DAYS`: Recency decay half-life (default: 7)
 - `MAX_GENRE_SHARE`: Max percentage of playlist from one genre (default: 0.4)
 - `PLAY_COUNT_SATURATION`: Play count normalization cap (default: 25)
@@ -130,10 +163,12 @@ TypeScript compiles `.ts` → `.js`, but imports must reference `.js`.
 
 ## Testing
 
-Uses Vitest with expected coverage:
-- Unit tests: ~90% (selection logic, scoring, time calculations)
-- Integration tests: ~9% (Plex client + SQLite with mocks)
-- E2E: ~1% (optional staging Plex smoke tests)
+Uses Vitest following testing pyramid principles:
+- **Unit tests (~90%)**: Selection logic, scoring algorithms, time calculations, aggregation
+- **Integration tests (~9%)**: Database migrations, Plex client interactions, caching, job tracking
+- **E2E (~1%)**: Optional staging Plex smoke tests
+
+All tests run automatically on commit via Husky pre-commit hooks (lint → test → build)
 
 ## Common Development Patterns
 
@@ -158,11 +193,12 @@ Uses Vitest with expected coverage:
 ## Observability
 
 ### Structured Logging
-The playlist runner (`playlist-runner.ts:50-165`) logs detailed metrics at each stage:
+The playlist runner (`playlist-runner.ts`) logs detailed metrics at each stage:
 - History retrieval: entry count, unique tracks
 - Candidate pool: total candidates, sources (history vs fallback)
 - Selection: initial selection size, sonic expansion usage
 - Final metrics: playlist size, candidate sources, cross-playlist exclusions
+- Batch mode: logs results for all three playlists (successful/failed counts)
 
 ### Job Tracking
 - All runs recorded in `job_runs` table with start/finish times and status
@@ -173,3 +209,30 @@ The playlist runner (`playlist-runner.ts:50-165`) logs detailed metrics at each 
 - SIGTERM/SIGINT handlers in `cli.ts:14-21`
 - Cleanly closes database and Plex connections
 - Safe for Docker stop/restart
+
+## Cache Warming System
+
+### Architecture (cache-cli.ts)
+
+**Incremental Warming** (`warmCache`)
+- Fetches all artists from Plex library
+- Filters out already-cached artists (90-day TTL)
+- Only fetches genres for uncached artists (skip_cached: true by default)
+- Tracked in `job_runs` table for observability
+
+**Auto-Refresh** (`refreshExpiringCache`)
+- Finds cache entries expiring within 7 days
+- Proactively refreshes them to prevent cold-start delays
+- Runs daily at 2am (before playlist generation at 5am)
+
+**Rate Limiting** (metadata/providers/spotify.ts)
+- Very conservative concurrency: 2 concurrent requests for artist cache, 3 for album cache
+- Exponential backoff on 429 errors (1s → 2s → 4s → 8s → 16s)
+- Respects `Retry-After` headers but **caps retry delays at 5 minutes**
+- Global rate limit tracker prevents API hammering
+- Note: Spotify can request 50+ minute delays; we cap these to keep cache warming viable
+
+**Scheduled Jobs** (scheduler.ts)
+- `cache-warm`: Weekly full warming (Sunday 3am)
+- `cache-refresh`: Daily refresh of expiring entries (2am)
+- Both tracked in `job_runs` with start/finish times and status

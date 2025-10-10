@@ -1,0 +1,62 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to improve Plex Playlist Enhancer? We'd love to hear it!
+
+        Note: This is a side project maintained in spare time. Feature requests may take a while to implement.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem would this feature solve? What are you trying to accomplish?
+      placeholder: |
+        Example: I have playlists for different moods, but can't automatically generate a "high energy" playlist using Plex's audio analysis features.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this feature to work?
+      placeholder: |
+        Example: Add a new playlist type that filters by energy level:
+        - Configurable via playlists.config.json
+        - Uses Plex's sonic features (tempo, energy)
+        - Could combine with existing time windows
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any workarounds or alternative solutions?
+      placeholder: |
+        Example: Currently manually filtering tracks, but it's time-consuming and doesn't stay up-to-date.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other context, screenshots, examples, or references?
+      placeholder: |
+        - Links to similar features in other apps
+        - Example configurations
+        - Mock-ups or ideas
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      description: Please verify before submitting
+      options:
+        - label: I've checked existing issues/PRs to avoid duplicates
+          required: true
+        - label: This feature aligns with the project's scope (automated Plex playlist generation)
+          required: true

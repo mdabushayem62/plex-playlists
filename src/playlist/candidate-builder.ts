@@ -3,7 +3,7 @@ import type { Track } from '@ctrl/plex';
 import type { AggregatedHistory } from '../history/aggregate.js';
 import { fallbackScore, recencyWeight } from '../scoring/weights.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
-import { getEnrichedGenres } from '../genre-enrichment.js';
+import { getEnrichedAlbumGenres } from '../genre-enrichment.js';
 
 export interface CandidateTrack {
   ratingKey: string;
@@ -24,7 +24,8 @@ const FINAL_SCORE_FALLBACK_WEIGHT = 0.3;
 
 /**
  * Get genre for a track with enrichment from multiple sources
- * Priority: Embedded tag > Navidrome > Manual mapping
+ * Priority: Embedded tag > Album genres (Spotify/Last.fm) > Fallback to artist
+ * Note: Uses cache-only mode to avoid rate limits during playlist generation
  */
 export const getGenre = async (track: Track): Promise<string | undefined> => {
   // Try embedded genre tag first
@@ -33,12 +34,15 @@ export const getGenre = async (track: Track): Promise<string | undefined> => {
     return embeddedGenre.tag;
   }
 
-  // Fallback to enriched genres (Navidrome or manual mapping)
+  // Use album-level genre enrichment (with artist fallback)
+  // Cache-only mode: only uses cached data, doesn't make API calls
   const artistName = track.grandparentTitle;
-  if (artistName) {
-    const artistGenres = await getEnrichedGenres(artistName);
-    if (artistGenres.length > 0) {
-      return artistGenres[0]; // Return primary genre
+  const albumName = track.parentTitle;
+
+  if (artistName && albumName) {
+    const albumGenres = await getEnrichedAlbumGenres(artistName, albumName, true);
+    if (albumGenres.length > 0) {
+      return albumGenres[0]; // Return primary genre
     }
   }
 

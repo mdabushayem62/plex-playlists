@@ -6,9 +6,13 @@ import { logger } from './logger.js';
 export const TIME_WINDOWS = ['morning', 'afternoon', 'evening'] as const;
 export type TimeWindow = (typeof TIME_WINDOWS)[number];
 
+// Cache maintenance windows
+export const CACHE_WINDOWS = ['cache-warm', 'cache-refresh'] as const;
+export type CacheWindow = (typeof CACHE_WINDOWS)[number];
+
 // Genre windows are now dynamic - loaded from config
 export type GenreWindow = string;
-export type PlaylistWindow = TimeWindow | GenreWindow;
+export type PlaylistWindow = TimeWindow | GenreWindow | CacheWindow;
 
 export interface TimeWindowDefinition {
   type: 'time';

@@ -5,7 +5,7 @@ import { candidateFromTrack, type CandidateTrack } from './candidate-builder.js'
 import { logger } from '../logger.js';
 
 const FALLBACK_FETCH_MULTIPLIER = 5;
-const GENRE_FALLBACK_FETCH_MULTIPLIER = 50; // Much larger when filtering by genre
+const GENRE_FALLBACK_FETCH_MULTIPLIER = 10; // Reduced from 50 to avoid timeouts on large libraries
 
 const isMusicSection = (section: Section): section is MusicSection =>
   (section as MusicSection).searchTracks !== undefined && section.CONTENT_TYPE === 'audio';

@@ -12,6 +12,7 @@ import { expandWithSonicSimilarity } from './playlist/sonic-expander.js';
 import { createAudioPlaylist, deletePlaylist, updatePlaylistSummary } from './plex/playlists.js';
 import type { PlaylistWindow } from './windows.js';
 import { getWindowDefinition, windowLabel as formatWindowLabel } from './windows.js';
+import { formatUserError } from './utils/error-formatter.js';
 
 const mergeCandidates = (primary: CandidateTrack[], fallback: CandidateTrack[]): CandidateTrack[] => {
   const map = new Map<string, CandidateTrack>();
@@ -28,6 +29,7 @@ const mergeCandidates = (primary: CandidateTrack[], fallback: CandidateTrack[]):
 
 export interface PlaylistRunner {
   run(window: PlaylistWindow): Promise<void>;
+  runAllDaily(): Promise<void>;
 }
 
 export class DailyPlaylistRunner implements PlaylistRunner {
@@ -181,11 +183,54 @@ export class DailyPlaylistRunner implements PlaylistRunner {
         'playlist run complete'
       );
     } catch (error) {
+      const userFriendlyError = formatUserError(error, `generating ${window} playlist`);
+
       if (jobId) {
-        await recordJobCompletion(jobId, 'failed', error instanceof Error ? error.message : String(error));
+        await recordJobCompletion(jobId, 'failed', userFriendlyError);
       }
       logger.error({ window, err: error }, 'playlist run failed');
       throw error;
+    }
+  }
+
+  /**
+   * Run all three daily time-based playlists sequentially
+   * Continues on error to ensure all windows are attempted
+   */
+  async runAllDaily(): Promise<void> {
+    const windows: PlaylistWindow[] = ['morning', 'afternoon', 'evening'];
+    const results: Array<{ window: PlaylistWindow; success: boolean; error?: string }> = [];
+
+    logger.info('starting batch generation of all daily playlists');
+
+    for (const window of windows) {
+      try {
+        await this.run(window);
+        results.push({ window, success: true });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error({ window, err: error }, `failed to generate ${window} playlist, continuing to next`);
+        results.push({ window, success: false, error: errorMessage });
+      }
+    }
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    logger.info(
+      {
+        total: windows.length,
+        successful,
+        failed,
+        results
+      },
+      'batch generation complete'
+    );
+
+    // If any failed, throw to indicate partial failure
+    if (failed > 0) {
+      const failedWindows = results.filter(r => !r.success).map(r => r.window);
+      throw new Error(`Failed to generate ${failed}/${windows.length} playlists: ${failedWindows.join(', ')}`);
     }
   }
 }

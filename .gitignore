@@ -10,16 +10,18 @@ dist/
 build/
 *.tsbuildinfo
 
-# Database
-*.db
-*.db-shm
-*.db-wal
-data/
+# Config directory (except documentation and templates)
+/config/
+!/config/README.md
+!/config/.gitkeep
 
-# Config directory (except documentation)
-config/
-!config/README.md
-!config/.gitkeep
+# Data directory (except documentation)
+/data/
+!/data/README.md
+!/data/.gitkeep
+!/data/imported_playlists/
+!/data/imported_playlists/README.md
+!/data/imported_playlists/.gitkeep
 
 # Environment variables
 .env
@@ -53,10 +55,5 @@ temp/
 *.tmp
 .venv
 
-# Personal data and imports
-imported_playlists/
-!imported_playlists/README.md
-!imported_playlists/.gitkeep
-
-# Ad-hoc test scripts
-test-*.ts
+# Ad-hoc test scripts (root level only)
+/test-*.ts

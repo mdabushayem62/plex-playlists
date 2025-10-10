@@ -5,8 +5,8 @@ This guide explains how to export your listening history from Spotify and YouTub
 ## Overview
 
 The import process:
-1. **Export** playlists from Spotify/YouTube Music as CSV files
-2. **Import** CSVs into Plex to set star ratings automatically
+1. **Export** playlists from Spotify (CSV) or YouTube Music (JSON or CSV)
+2. **Import** files into Plex to set star ratings automatically
 3. **Ratings** are assigned based on playlist type (Top Songs, Liked, or Curated)
 
 ### Rating System
@@ -69,73 +69,55 @@ spotify:track:abc123,Song Title,Artist Name,Album Name,240000,2024-01-15
 3. Click **"All YouTube data included"** and deselect everything except:
    - ✅ playlists
    - ✅ music-library-songs
-4. Choose **JSON format** (will be converted to CSV)
+4. Choose **JSON format** (natively supported - no conversion needed!)
 5. Click **"Next step"** and choose export settings
 6. **Wait** for Google to prepare your export (can take hours/days)
-7. **Download** the archive when ready
+7. **Download** and extract the archive when ready
+8. **Copy** the JSON files to your import directory
 
-### Converting YouTube Music JSON to CSV
+### Supported YouTube Music JSON Formats
 
-YouTube Takeout provides JSON files. Use this Python script to convert them:
+The importer automatically handles multiple YouTube Music export formats:
 
-```python
-import json
-import csv
-from pathlib import Path
-
-def convert_youtube_playlist_to_csv(json_file, csv_file):
-    with open(json_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    with open(csv_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            'Video ID', 'Song Title', 'Artist Name 1',
-            'Artist Name 2', 'Artist Name 3', 'Artist Name 4', 'Album Title'
-        ])
-        writer.writeheader()
-
-        for item in data:
-            # Extract track info from YouTube Music JSON structure
-            title = item.get('title', '')
-            video_id = item.get('contentDetails', {}).get('videoId', '')
-
-            # Split artist info (YouTube often combines artists)
-            artists = item.get('subtitle', '').split(' • ')
-            artist1 = artists[0] if len(artists) > 0 else ''
-            artist2 = artists[1] if len(artists) > 1 else ''
-            album = artists[2] if len(artists) > 2 else ''
-
-            writer.writerow({
-                'Video ID': video_id,
-                'Song Title': title,
-                'Artist Name 1': artist1,
-                'Artist Name 2': artist2,
-                'Artist Name 3': '',
-                'Artist Name 4': '',
-                'Album Title': album
-            })
-
-# Convert all playlists
-for json_file in Path('Takeout/YouTube and YouTube Music/playlists').glob('*.json'):
-    csv_file = json_file.with_suffix('.csv')
-    convert_youtube_playlist_to_csv(json_file, csv_file)
-    print(f'Converted: {json_file.name} → {csv_file.name}')
+**Format 1: Direct Array**
+```json
+[
+  {
+    "title": "Song Title",
+    "artist": "Artist Name",
+    "album": "Album Name"
+  }
+]
 ```
 
-Save as `convert_youtube.py` and run: `python convert_youtube.py`
-
-### Expected YouTube Music CSV Format
-
-```csv
-Video ID,Song Title,Artist Name 1,Artist Name 2,Artist Name 3,Artist Name 4,Album Title
-abc123xyz,Song Title,Primary Artist,Featured Artist,,,Album Name
+**Format 2: Wrapped Object**
+```json
+{
+  "tracks": [
+    {
+      "title": "Song Title",
+      "artist": "Artist Name",
+      "album": "Album Name"
+    }
+  ]
+}
 ```
 
-**Required columns:**
-- `Video ID`
-- `Song Title`
-- `Artist Name 1` (at minimum)
-- `Album Title` (optional)
+**Format 3: Single Track**
+```json
+{
+  "title": "Song Title",
+  "artist": "Artist Name",
+  "album": "Album Name"
+}
+```
+
+**Field name variations supported:**
+- `title`, `song`, or `songTitle`
+- `artist` or `artistName`
+- `album` or `albumTitle`
+
+> **No conversion needed!** Just place `.json` files alongside `.csv` files in your import directory. The importer auto-detects the format.
 
 ---
 
@@ -144,13 +126,13 @@ abc123xyz,Song Title,Primary Artist,Featured Artist,,,Album Name
 ### Prerequisites
 
 1. **Plex library** with music files properly tagged
-2. **CSV files** exported from Spotify or YouTube Music
+2. **CSV or JSON files** exported from Spotify or YouTube Music
 3. **plex-playlists** installed and configured
 
 ### Basic Import Command
 
 ```bash
-plex-playlists import /path/to/csv-folder
+plex-playlists import /path/to/files-folder
 ```
 
 ### Options
@@ -167,9 +149,9 @@ plex-playlists import ~/music-exports/spotify/
 
 The importer will:
 
-1. **Parse** all CSV files in the directory
+1. **Parse** all CSV and JSON files in the directory (auto-detected by extension)
 2. **Fetch** all tracks from your Plex library (one-time operation)
-3. **Match** CSV tracks to Plex tracks using fuzzy matching:
+3. **Match** tracks to Plex tracks using fuzzy matching:
    - Artist name matching (handles multi-artist tracks)
    - Track title matching (handles variations)
    - Album matching for disambiguation
@@ -182,11 +164,11 @@ The importer automatically detects playlist types by filename:
 
 | Playlist Name Pattern | Rating | Examples |
 |----------------------|--------|----------|
-| `*top*songs*` | 4.5 ⭐ | `Your Top Songs 2024.csv`, `Top 100 Songs.csv` |
-| `*liked*songs*` | 4.0 ⭐ | `Liked Songs.csv`, `My Liked Songs.csv` |
-| Anything else | 3.0 ⭐ | `Workout Mix.csv`, `Chill Vibes.csv` |
+| `*top*songs*` | 4.5 ⭐ | `Your Top Songs 2024.csv`, `Top 100 Songs.json` |
+| `*liked*songs*` | 4.0 ⭐ | `Liked Songs.csv`, `My Liked Songs.json` |
+| Anything else | 3.0 ⭐ | `Workout Mix.csv`, `Chill Vibes.json` |
 
-> **Tip**: Rename your CSV files before import to match these patterns for optimal ratings.
+> **Tip**: Rename your CSV/JSON files before import to match these patterns for optimal ratings.
 
 ### Example Directory Structure
 
@@ -199,8 +181,9 @@ The importer automatically detects playlist types by filename:
 │   ├── Workout Mix.csv
 │   └── Chill Vibes.csv
 └── youtube/
-    ├── Liked Music.csv
-    └── My Playlist.csv
+    ├── Liked Music.json
+    ├── Your Top Songs 2024.json
+    └── My Playlist.json
 ```
 
 **Import command:**
@@ -208,6 +191,8 @@ The importer automatically detects playlist types by filename:
 plex-playlists import ~/music-exports/spotify/
 plex-playlists import ~/music-exports/youtube/
 ```
+
+> **Note**: CSV and JSON files can be mixed in the same directory - the importer auto-detects based on file extension.
 
 ---
 
@@ -302,7 +287,7 @@ tail -f ~/.local/share/plex-playlists/logs/app.log
 **Problem**: `Matched to Plex library: 0`
 
 **Solutions**:
-1. Verify CSV format matches Spotify or YouTube Music format
+1. Verify file format matches Spotify CSV or YouTube Music JSON/CSV format
 2. Check Plex library has music files with proper metadata
 3. Run with `--dry-run` to see detailed errors
 4. Check logs for specific matching failures
@@ -316,15 +301,16 @@ tail -f ~/.local/share/plex-playlists/logs/app.log
 2. Ensure token has write permissions
 3. Test connection: `plex-playlists cache stats`
 
-### CSV parsing errors
+### CSV/JSON parsing errors
 
-**Problem**: "Unknown CSV format" or parsing failures
+**Problem**: "Unknown CSV format" or "Failed to parse JSON" errors
 
 **Solutions**:
-1. Ensure CSV has required column headers (case-sensitive)
-2. Check for UTF-8 encoding (not UTF-16 or other)
-3. Remove BOM if present
-4. Verify no empty rows at start of file
+1. **CSV**: Ensure file has required column headers (case-sensitive)
+2. **JSON**: Validate JSON syntax using a JSON validator
+3. Check for UTF-8 encoding (not UTF-16 or other)
+4. Remove BOM if present
+5. Verify no empty rows at start of file (CSV)
 
 ### Tracks already rated
 
@@ -395,21 +381,22 @@ After importing:
 
 ## Reference
 
-### Supported CSV Formats
+### Supported Formats
 
-| Service | Format | Auto-detected |
-|---------|--------|---------------|
-| Spotify (Exportify) | `Track URI`, `Track Name`, `Artist Name(s)`, `Album Name` | ✅ Yes |
-| YouTube Music (Takeout) | `Video ID`, `Song Title`, `Artist Name 1-4`, `Album Title` | ✅ Yes |
-| Custom | Any format with artist/title columns | ⚠️ Requires code modification |
+| Service | Format | File Type | Auto-detected |
+|---------|--------|-----------|---------------|
+| Spotify (Exportify) | `Track URI`, `Track Name`, `Artist Name(s)`, `Album Name` | CSV | ✅ Yes |
+| YouTube Music (Takeout) | `title`, `artist`, `album` (with variations) | JSON | ✅ Yes |
+| YouTube Music (CSV) | `Video ID`, `Song Title`, `Artist Name 1-4`, `Album Title` | CSV | ✅ Yes |
+| Custom | Any format with artist/title columns | CSV/JSON | ⚠️ Requires code modification |
 
 ### CLI Reference
 
 ```bash
-# Import ratings from CSV files
-plex-playlists import <csv-directory> [--dry-run]
+# Import ratings from CSV/JSON files
+plex-playlists import <directory> [--dry-run]
 
-# Check import would affect (no changes made)
+# Check what import would affect (no changes made)
 plex-playlists import ~/exports/ --dry-run
 
 # View detailed logs
@@ -418,7 +405,7 @@ tail -f ~/.local/share/plex-playlists/logs/app.log
 
 ### File Locations
 
-- **CSV exports**: Anywhere you choose (e.g., `~/music-exports/`)
+- **CSV/JSON exports**: Anywhere you choose (e.g., `~/music-exports/`)
 - **Logs**: `~/.local/share/plex-playlists/logs/`
 - **Database**: `./data/plex-playlists.db`
 - **Config**: `.env` in project root
@@ -432,7 +419,7 @@ If you encounter issues:
 1. Check this documentation first
 2. Review logs for detailed error messages
 3. Run with `--dry-run` to preview without changes
-4. Verify CSV format matches Spotify or YouTube Music format
+4. Verify file format matches Spotify CSV or YouTube Music JSON/CSV formats
 5. Test Plex connection: `plex-playlists cache stats`
 
 For bugs or feature requests, see the main [README.md](./README.md).

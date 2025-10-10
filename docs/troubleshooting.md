@@ -312,9 +312,9 @@ curl http://localhost:9090/metrics
 
 **Solutions:**
 ```bash
-# Check if you have listening history
+# Check if playlists have been generated
 docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db \
-  "SELECT COUNT(*) FROM history_cache;"
+  "SELECT COUNT(*) FROM job_runs WHERE status = 'success';"
 
 # Temporarily lower constraints
 MAX_GENRE_SHARE=0.6  # Allow 60% instead of 40%

@@ -2,15 +2,20 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "outDir": "dist",
     "resolveJsonModule": true,
-    "types": ["node"]
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node", "@kitajs/html"],
+    "jsx": "react",
+    "jsxFactory": "Html.createElement",
+    "jsxFragmentFactory": "Html.Fragment"
   },
-  "include": ["src/**/*.ts", "bin/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "bin/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

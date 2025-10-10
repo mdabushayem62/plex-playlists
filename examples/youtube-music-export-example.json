@@ -1,0 +1,27 @@
+[
+  {
+    "title": "Bohemian Rhapsody",
+    "artist": "Queen",
+    "album": "A Night at the Opera"
+  },
+  {
+    "title": "Stairway to Heaven",
+    "artist": "Led Zeppelin",
+    "album": "Led Zeppelin IV"
+  },
+  {
+    "title": "Hotel California",
+    "artist": "Eagles",
+    "album": "Hotel California"
+  },
+  {
+    "title": "Smells Like Teen Spirit",
+    "artist": "Nirvana",
+    "album": "Nevermind"
+  },
+  {
+    "title": "Imagine",
+    "artist": "John Lennon",
+    "album": "Imagine"
+  }
+]

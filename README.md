@@ -1,15 +1,71 @@
 # Plex Playlist Enhancer
 
-Automated daily Plex playlist generator that creates time-sliced music playlists (morning, afternoon, evening) based on your listening history with intelligent scoring and sonic similarity.
+Automated daily and genre-based Plex playlists using your listening history, star ratings, and sonic similarity - like Spotify's Daylist, but for Plex and open source.
+
+**In a nutshell**: 3 daily playlists + 20 genre playlists, all automatic, using your Plex listening history, star ratings, and algorithmic similarity.
+
+## What This Does
+
+Tired of manually creating playlists? This tool automatically generates:
+
+1. **Time-Based Daily Playlists** (`🌅 Daily Morning Mix`, `☀️ Daily Afternoon Mix`, `🌙 Daily Evening Mix`)
+   - Based on when you actually listen to different music throughout the day
+   - All three updated automatically on your schedule (default: 5am daily)
+
+2. **Genre-Based Weekly Playlists** (`🎵 Weekly Synthwave`, `🎵 Weekly Psytrance`, etc.)
+   - Configurable genre playlists updated weekly
+   - Auto-discovery mode finds your top genres automatically
+
+3. **Smart Selection Algorithm**
+   - Exponential recency decay (recent plays favored)
+   - Star ratings and play count weighting
+   - Sonic similarity expansion using Plex's audio analysis
+
+4. **Rating Import**
+   - Bootstrap your Plex ratings from Spotify (CSV) or YouTube Music (JSON) exports
+   - "Your Top Songs" → 4.5 stars, "Liked Songs" → 4.0 stars
+
+**Perfect for:**
+- 🎧 Music lovers with large Plex libraries
+- 🏠 Homelab enthusiasts who want to own their music streaming
+- 📊 Data nerds who want algorithmic playlists without Spotify
+- 🎵 Anyone tired of listening to the same songs on repeat
 
 ## Features
 
+### Core Playlist Generation
 - 🕐 **Time-windowed playlists**: Three daily playlists tailored to morning (6-11am), afternoon (12-5pm), and evening (6-11pm) listening patterns
+- 🎼 **Genre playlists**: Weekly playlists for specific genres (synthwave, psytrance, techno, etc.)
+- 🔍 **Auto-discovery**: Automatically create playlists for your top genres in your library
 - 📊 **Smart scoring**: Exponential recency decay with configurable half-life, combined with user ratings and play counts
-- 🎵 **Sonic similarity**: Automatically expands playlists using Plex's sonic analysis when needed
-- 🎯 **Balance constraints**: Genre limits (max 40% per genre) and artist limits (max 2 tracks per artist)
+- 🎵 **Sonic similarity**: Expands playlists using Plex's sonic analysis when needed
+- 🎯 **Intelligent constraints**: Genre limits (max 40% per genre) and artist limits (max 2 tracks per artist)
+- 🚫 **Cross-playlist deduplication**: Prevents same track appearing in multiple daily playlists
+
+### Rating & Metadata
+- 📥 **Import ratings from Spotify/YouTube Music**: Bulk import star ratings from CSV/JSON exports
+  - Spotify: Export via Exportify (CSV)
+  - YouTube Music: Google Takeout (JSON, natively supported)
+  - "Your Top Songs" → 4.5 stars
+  - "Liked Songs" → 4.0 stars
+  - Custom playlists → 3.0 stars
+- 🏷️ **Genre metadata enrichment**: Fetch genres from Spotify + Last.fm APIs for better filtering
+- 💾 **Genre caching**: 90-day TTL cache to minimize API calls
+- ⚡ **Cache pre-warming**: Bulk populate genre cache for entire library
+
+### Operations & Observability
+- 🐳 **Docker ready**: Full containerization with docker-compose
 - 💾 **SQLite persistence**: Tracks playlist history and job execution for observability
-- 🐳 **Docker ready**: Full containerization support with docker-compose
+- 📅 **Cron scheduling**: Configurable schedules for each playlist window
+- 🏥 **Health monitoring**: Built-in healthcheck validates database and scheduler activity
+- 📊 **Job tracking**: View success/failure history with error messages
+- ⚙️ **Highly configurable**: 12+ environment variables for tuning behavior
+
+### Developer Experience
+- ✅ **Comprehensive test suite** (unit + integration tests) - all passing
+- 📖 **Comprehensive docs**: README + docs/ (troubleshooting, import guides, setup guides)
+- 🔧 **Type-safe**: Full TypeScript with strict mode
+- 🪝 **Graceful shutdown**: Proper SIGTERM/SIGINT handling for clean restarts
 
 ## Prerequisites
 
@@ -31,7 +87,7 @@ Automated daily Plex playlist generator that creates time-sliced music playlists
 
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone https://github.com/aceofaces/plex-playlists.git
 cd plex-playlists
 
 # Create environment file
@@ -44,6 +100,12 @@ docker-compose up -d
 # View logs
 docker-compose logs -f
 ```
+
+🌐 **Access Web UI**: http://localhost:8687
+- Setup wizard for first-time configuration
+- Dashboard with playlist status
+- Manual playlist generation
+- Configuration editor
 
 ### Option 2: Local Development
 
@@ -63,6 +125,106 @@ npm run build
 npm start
 ```
 
+🌐 **Access Web UI**: http://localhost:8687
+- Setup wizard for first-time configuration
+- Dashboard with playlist status
+- Manual playlist generation
+- Configuration editor
+
+## Importing Ratings
+
+One of the killer features - bootstrap your Plex ratings from Spotify or YouTube Music:
+
+```bash
+# Spotify: Export playlists using Exportify (https://exportify.net) → CSV files
+# YouTube Music: Use Google Takeout → JSON files (natively supported!)
+plex-playlists import ~/music-exports/
+
+# Results:
+# ✓ Matched 1,089 of 1,247 tracks (87%)
+# ✓ Set 834 ratings
+# ✓ Skipped 255 already rated
+```
+
+The importer auto-detects CSV and JSON formats - just place your files in a directory and import.
+
+This gives the scoring algorithm real data to work with from day one instead of starting from zero.
+
+**See [docs/importing.md](./docs/importing.md) for complete step-by-step instructions.**
+
+## Genre Playlists
+
+Beyond daily time-based playlists, create genre-focused weekly playlists:
+
+### Pinned Genres (Config-Driven)
+
+Configure specific genres you want as weekly playlists:
+
+```json
+// playlists.config.json
+{
+  "genrePlaylists": {
+    "pinned": [
+      {
+        "name": "synthwave",
+        "genre": "synthwave",
+        "cron": "0 7 * * 1",      // Mondays at 7 AM
+        "enabled": true,
+        "description": "Synthwave hits from the 80s future"
+      }
+    ]
+  }
+}
+```
+
+**Creates**: `🎵 Weekly Synthwave` playlist
+
+### Auto-Discovery
+
+Automatically create playlists for your top genres:
+
+```json
+{
+  "autoDiscover": {
+    "enabled": true,
+    "minArtists": 5,      // Genre needs 5+ artists to qualify
+    "maxPlaylists": 20,   // Cap at 20 genre playlists
+    "exclude": ["electronic", "edm"],  // Skip broad/generic genres
+    "schedule": "0 15 * * 1"  // Weekly refresh
+  }
+}
+```
+
+Auto-discovery analyzes your library, finds top genres, and creates `🎵 Weekly [Genre]` playlists automatically.
+
+Run `plex-playlists run synthwave` to generate genre playlists manually.
+
+## Use Cases
+
+### Daily Listening Habits
+Generate fresh daily playlists that adapt to your patterns:
+- **🌅 Morning**: Chill/focus music you listen to while working
+- **☀️ Afternoon**: Upbeat tracks from your lunchtime listening
+- **🌙 Evening**: Whatever you wind down with at night
+
+### Genre Deep Dives
+Create weekly genre playlists for focused listening:
+- `🎵 Weekly Synthwave`
+- `🎵 Weekly Psytrance`
+- `🎵 Weekly Jazz`
+
+### Library Onboarding
+Import ratings from Spotify (CSV) or YouTube Music (JSON) to jumpstart scoring:
+- Export "Your Top Songs 2024" → instant 4.5-star ratings
+- Export "Liked Songs" → 4.0-star baseline
+- Auto-detection handles both formats
+- Let the algorithm handle the rest
+
+### Music Discovery
+- Sonic similarity expands playlists beyond your history
+- Auto-discovery finds genres you didn't know you had
+- Cross-playlist deduplication keeps daily mixes fresh
+
 ## Configuration
 
 All configuration is done via environment variables in `.env`:
@@ -72,48 +234,38 @@ All configuration is done via environment variables in `.env`:
 - `PLEX_BASE_URL`: Your Plex server URL (e.g., `http://localhost:32400`)
 - `PLEX_AUTH_TOKEN`: Your Plex authentication token
 
-### Optional
+### Optional - Scheduling
 
-- `DATABASE_PATH`: SQLite database location (default: `./data/plex-playlists.db`)
-- `MORNING_CRON`: Cron schedule for morning playlist (default: `0 6 * * *`)
-- `AFTERNOON_CRON`: Cron schedule for afternoon playlist (default: `0 12 * * *`)
-- `EVENING_CRON`: Cron schedule for evening playlist (default: `0 18 * * *`)
+- `DAILY_PLAYLISTS_CRON`: Cron schedule for all three daily playlists (default: `0 5 * * *`)
+  - All three playlists (morning, afternoon, evening) run sequentially at scheduled time
+  - Time-based history filtering is preserved (morning playlist still uses 6-11am history)
+
+### Optional - Scoring
+
 - `HALF_LIFE_DAYS`: Recency decay half-life in days (default: `7`)
-- `MAX_GENRE_SHARE`: Max percentage per genre (default: `0.4`)
+- `MAX_GENRE_SHARE`: Max percentage per genre (default: `0.4` = 40%)
 - `PLAY_COUNT_SATURATION`: Play count normalization cap (default: `25`)
+
+### Optional - Playlist Generation
+
 - `PLAYLIST_TARGET_SIZE`: Target number of tracks per playlist (default: `50`)
 - `MAX_PER_ARTIST`: Maximum tracks per artist (default: `2`)
 - `HISTORY_DAYS`: Number of days of history to analyze (default: `30`)
 - `FALLBACK_LIMIT`: Maximum tracks to fetch for fallback candidates (default: `200`)
 
-## Usage
+### Optional - Metadata Enrichment
 
-### Scheduler Mode (Default)
+- `LASTFM_API_KEY`: Last.fm API key for genre enrichment (optional)
+- `SPOTIFY_CLIENT_ID`: Spotify client ID for genre enrichment (optional)
+- `SPOTIFY_CLIENT_SECRET`: Spotify client secret for genre enrichment (optional)
 
-Runs continuously with cron-scheduled playlist generation:
+See [docs/lastfm-setup.md](./docs/lastfm-setup.md) and [docs/spotify-setup.md](./docs/spotify-setup.md) for API setup instructions.
 
-```bash
-# Local
-npm start
+### Optional - Storage
 
-# Docker
-docker-compose up -d
-```
+- `DATABASE_PATH`: SQLite database location (default: `./data/plex-playlists.db`)
 
-### Manual Mode
-
-Generate a single playlist on demand:
-
-```bash
-# Local
-npm run build
-node dist/cli.js run morning     # or afternoon, evening
-
-# Docker
-docker-compose run --rm plex-playlists node dist/cli.js run morning
-```
-
-## CLI Commands
+## CLI Reference
 
 All commands can be run via `plex-playlists` (or `node dist/cli.js` if not installed globally).
 
@@ -124,29 +276,19 @@ All commands can be run via `plex-playlists` (or `node dist/cli.js` if not insta
 plex-playlists start
 
 # Generate a single playlist on demand
-plex-playlists run <window>
-# Windows: morning, afternoon, evening
-# Also supports genre windows from playlists.config.json (e.g., synthwave, psytrance)
+plex-playlists run morning              # Time windows: morning, afternoon, evening
+plex-playlists run synthwave            # Genre windows from playlists.config.json
 ```
 
 ### Import Ratings
 
-Import star ratings from Spotify or YouTube Music playlists:
-
 ```bash
-# Import ratings from CSV files
-plex-playlists import <csv-directory> [--dry-run]
-
-# Examples:
-plex-playlists import ~/spotify-exports/           # Apply ratings
-plex-playlists import ~/spotify-exports/ --dry-run # Preview only
+# Import ratings from CSV/JSON files (auto-detected)
+plex-playlists import <directory>         # Apply ratings
+plex-playlists import <directory> --dry-run  # Preview changes only
 ```
 
-See [IMPORTING.md](./IMPORTING.md) for detailed instructions on exporting from Spotify/YouTube Music.
-
 ### Cache Management
-
-Pre-warm or manage the genre metadata cache:
 
 ```bash
 # Pre-populate genre cache for all Plex artists
@@ -157,65 +299,7 @@ plex-playlists cache stats
 
 # Clear expired or all cache entries
 plex-playlists cache clear [--all]
-
-# Examples:
-plex-playlists cache warm --concurrency=5  # Warm cache with 5 concurrent requests
-plex-playlists cache stats                 # View cached entries by source
-plex-playlists cache clear                 # Remove expired entries
-plex-playlists cache clear --all           # Remove all cache entries
 ```
-
-**Note**: Cache warming requires Last.fm and/or Spotify API credentials (see [LASTFM_SETUP.md](./LASTFM_SETUP.md) and [SPOTIFY_SETUP.md](./SPOTIFY_SETUP.md)).
-
-## Genre Playlists
-
-In addition to time-based playlists (morning/afternoon/evening), you can configure genre-based playlists via `playlists.config.json`:
-
-### Pinned Genre Playlists
-
-Define specific genres you want as weekly playlists:
-
-```json
-{
-  "genrePlaylists": {
-    "pinned": [
-      {
-        "name": "synthwave",
-        "genre": "synthwave",
-        "cron": "0 7 * * 1",
-        "enabled": true,
-        "description": "Synthwave hits from the 80s future"
-      }
-    ]
-  }
-}
-```
-
-### Auto-Discovery
-
-Automatically create playlists for top genres in your library:
-
-```json
-{
-  "genrePlaylists": {
-    "autoDiscover": {
-      "enabled": true,
-      "minArtists": 5,
-      "maxPlaylists": 20,
-      "exclude": ["electronic", "edm"],
-      "schedule": "0 15 * * 1"
-    }
-  }
-}
-```
-
-**Features**:
-- Analyzes your library to find top genres
-- Creates playlists for genres with at least N artists
-- Excludes broad/generic genres
-- Limited to max number of playlists
-
-Run `plex-playlists run <genre-name>` to generate genre playlists manually (e.g., `plex-playlists run synthwave`).
 
 ## How It Works
 
@@ -243,14 +327,14 @@ Each candidate track receives a final score based on:
    - Pass 1: Genre + artist limits
    - Pass 2: Artist limit only
    - Pass 3: No constraints
-6. **Sonic Expansion**: Use Plex `sonicallySimilar` API to fill to 50 tracks
+6. **Sonic Expansion**: Use Plex `sonicallySimilar` API to fill to target size
 7. **Playlist Creation**: Replace existing playlist, persist to database
 
 ### Database Schema
 
 - `playlists`: Generated playlist metadata
 - `playlist_tracks`: Individual tracks with positions and scores
-- `history_cache`: Cached play counts (schema exists for future use)
+- `genre_cache`: Cached genre metadata from Spotify/Last.fm APIs
 - `job_runs`: Execution history with status and errors
 
 ## Development
@@ -263,6 +347,29 @@ npm run build         # Production build (ESM + CJS + types)
 npm run lint          # ESLint check
 npm run test          # Run tests
 npm run test:watch    # Watch mode
+```
+
+### Pre-commit Hooks
+
+The project uses Husky to enforce code quality before commits. On every commit, the following checks run automatically:
+
+1. **ESLint** - Code quality and style validation
+2. **Tests** - Full test suite (unit + integration)
+3. **Build** - TypeScript compilation check
+
+If any check fails, the commit is blocked. This ensures all committed code:
+- ✅ Passes linting with zero warnings
+- ✅ Has all tests passing
+- ✅ Compiles successfully
+
+**Manual execution:**
+```bash
+.husky/pre-commit  # Run all pre-commit checks manually
+```
+
+**First-time setup:**
+```bash
+npm install  # Automatically sets up hooks via "prepare" script
 ```
 
 ### Database Migrations
@@ -301,8 +408,17 @@ src/
 │   ├── client.ts
 │   ├── tracks.ts
 │   └── playlists.ts
-└── scoring/                # Scoring algorithms
-    └── weights.ts
+├── scoring/                # Scoring algorithms
+│   └── weights.ts
+├── import/                 # Rating import from CSV/JSON
+│   ├── importer-fast.ts
+│   ├── file-parser.ts      # CSV and JSON parser
+│   ├── json-parser.ts      # YouTube Music JSON support
+│   └── track-matcher.ts
+└── metadata/               # Genre enrichment
+    └── providers/
+        ├── spotify.ts
+        └── lastfm.ts
 ```
 
 ## Troubleshooting
@@ -366,29 +482,35 @@ docker-compose exec plex-playlists date
 # Should show your local time, not UTC
 ```
 
-**Example:** If you want morning playlist at 6 AM in Los Angeles:
+**Example:** If you want daily playlists to run at 5 AM in Los Angeles:
 ```yaml
 environment:
   - TZ=America/Los_Angeles
-  - MORNING_CRON=0 6 * * *  # Runs at 6:00 AM Pacific Time
+  - DAILY_PLAYLISTS_CRON=0 5 * * *  # Runs at 5:00 AM Pacific Time
 ```
 
-See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for more detailed error recovery and operational guidance.
+See [docs/troubleshooting.md](./docs/troubleshooting.md) for more detailed error recovery and operational guidance.
 
 ## Roadmap
 
 ### Completed ✅
 
 - [x] **Cross-playlist deduplication** - Prevents duplicate tracks across daily playlists
-- [x] **Configurable playlist size and artist limits** - Via `PLAYLIST_TARGET_SIZE` and `MAX_PER_ARTIST` env vars
-- [x] **Unit test coverage** - 88/88 tests passing with 91% coverage of core business logic (history, playlist selection, scoring)
+- [x] **Configurable playlist size and artist limits** - Via `PLAYLIST_TARGET_SIZE` and `MAX_PER_ARTIST`
+- [x] **Comprehensive test coverage** - Unit tests for core business logic, integration tests for database and caching
+- [x] **Rating import** - Import from Spotify/YouTube Music CSV exports
+- [x] **Genre metadata enrichment** - Spotify + Last.fm API integration
+- [x] **Genre caching** - 90-day TTL cache with pre-warming support
+- [x] **Weekly genre playlists** - Pinned genres + auto-discovery mode
+- [x] **JSON schema validation** - IDE autocomplete for playlists.config.json
+- [x] **Web UI dashboard** - Browser-based setup wizard, configuration editor, dashboard with playlist status, and manual playlist generation
 
-### In Progress / Planned
+### Planned
 
-- [ ] **Integration tests** - End-to-end tests for database and Plex client
 - [ ] **Custom playlist artwork** - Generate cover art from album covers or genre themes
-- [ ] **Web UI dashboard** - Browser-based configuration and playlist preview
 - [ ] **Multi-user support** - Per-user playlists and configuration
+- [ ] **Playlist export** - Export to M3U or back to Spotify
+- [ ] **Mood/energy-based playlists** - Using Plex audio features for energy/mood filtering
 
 ## License
 

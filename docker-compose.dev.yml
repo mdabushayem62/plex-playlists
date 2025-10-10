@@ -1,0 +1,16 @@
+# Development docker-compose override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  plex-playlists:
+    # Build from local source instead of using pre-built image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: plex-playlists:dev
+
+    # Mount source code for live development (requires npm run dev in container)
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/config
+      - ./data:/data

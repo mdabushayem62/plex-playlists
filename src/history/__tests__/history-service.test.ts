@@ -45,7 +45,7 @@ function createMockHistoryItem(
 function createMockServer(historyResult: MockHistoryItem[]): PlexServer {
   return {
     history: vi.fn().mockResolvedValue(historyResult)
-  } as PlexServer;
+  } as unknown as PlexServer;
 }
 
 describe('fetchHistoryForWindow', () => {
@@ -261,7 +261,7 @@ describe('fetchHistoryForWindow', () => {
   });
 
   it('returns empty array when history is not an array', async () => {
-    const server = { history: vi.fn().mockResolvedValue(null) } as PlexServer;
+    const server = { history: vi.fn().mockResolvedValue(null) } as unknown as PlexServer;
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
     const result = await fetchHistoryForWindow('morning', 30);

@@ -1,0 +1,95 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below to help us investigate.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear description of what the bug is and what you expected to happen.
+      placeholder: |
+        Example: Playlists generate but are empty, expected 50 tracks per playlist.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Run `docker-compose up`
+        2. Navigate to http://localhost:8687
+        3. Click "Generate Morning Playlist"
+        4. Playlist is created but has 0 tracks
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Please include relevant logs. For Docker: `docker-compose logs plex-playlists`
+      render: shell
+      placeholder: |
+        Paste logs here...
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version are you using? (Check `docker-compose.yml` or package.json)
+      placeholder: "v0.2.0 or ghcr.io/aceofaces/plex-playlists:latest"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      description: How are you running the application?
+      options:
+        - Docker (docker-compose)
+        - Docker (manual)
+        - npm/Node.js directly
+        - Other (describe in bug description)
+    validations:
+      required: true
+
+  - type: input
+    id: plex-version
+    attributes:
+      label: Plex Media Server version
+      description: What version of Plex are you running?
+      placeholder: "1.40.0.7998 or check Settings > General > Server Version"
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment details
+      description: |
+        Any other relevant details about your setup
+      placeholder: |
+        - OS: Ubuntu 22.04 / Unraid / Synology DSM
+        - Library size: ~5000 tracks
+        - Network: Plex on localhost vs remote server
+        - Any custom config in .env or playlists.config.json
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      description: Please verify you've done these before submitting
+      options:
+        - label: I've checked existing issues to avoid duplicates
+          required: true
+        - label: I've included relevant logs
+          required: false
+        - label: I've checked the [troubleshooting guide](../docs/troubleshooting.md)
+          required: false

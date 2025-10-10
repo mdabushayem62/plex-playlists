@@ -15,7 +15,8 @@ vi.mock('../../logger.js', () => ({
 
 // Mock genre enrichment service
 vi.mock('../../genre-enrichment.js', () => ({
-  getEnrichedGenres: vi.fn().mockResolvedValue([])
+  getEnrichedGenres: vi.fn().mockResolvedValue([]),
+  getEnrichedAlbumGenres: vi.fn().mockResolvedValue([])
 }));
 
 // Mock the Plex tracks module
@@ -58,7 +59,7 @@ describe('getGenre', () => {
   });
 
   it('returns undefined when genres array is empty', async () => {
-    const track = { genres: [] } as Track;
+    const track = { genres: [] } as unknown as Track;
     expect(await getGenre(track)).toBeUndefined();
   });
 });

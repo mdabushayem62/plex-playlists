@@ -100,8 +100,11 @@ export const savePlaylist = async ({
         title: track.title,
         artist: track.artist,
         album: track.album,
+        genres: track.genre ? JSON.stringify([track.genre]) : null,
         position: track.position,
-        score: track.finalScore
+        score: track.finalScore,
+        recencyWeight: track.recencyWeight,
+        fallbackScore: track.fallbackScore
       }))
     ).run();
   });

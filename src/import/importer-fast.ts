@@ -2,7 +2,7 @@ import type { MusicSection, Section, Track } from '@ctrl/plex';
 import pLimit from 'p-limit';
 import { getPlexServer } from '../plex/client.js';
 import { logger } from '../logger.js';
-import { parseAllCSVFiles } from './csv-parser.js';
+import { parseAllFiles } from './file-parser.js';
 import { findBestMatch } from './track-matcher.js';
 import { calculateRating, getDefaultRatingConfig } from './rating-calculator.js';
 import { setTrackRating } from './plex-rating.js';
@@ -257,12 +257,12 @@ export const importRatingsFromCSVs = async (
     'Starting optimized rating import'
   );
 
-  // Parse all CSV files
-  const trackMap = parseAllCSVFiles(csvDirectoryPath);
+  // Parse all CSV and JSON files
+  const trackMap = parseAllFiles(csvDirectoryPath);
   const tracks = Array.from(trackMap.values());
 
   if (tracks.length === 0) {
-    logger.warn('No tracks found in CSV files');
+    logger.warn('No tracks found in CSV or JSON files');
     return {
       totalTracks: 0,
       matchedTracks: 0,
@@ -272,7 +272,7 @@ export const importRatingsFromCSVs = async (
     };
   }
 
-  logger.info({ totalTracks: tracks.length }, 'Parsed CSV tracks');
+  logger.info({ totalTracks: tracks.length }, 'Parsed CSV and JSON tracks');
 
   // Get Plex music section
   const musicSection = await findMusicSection();

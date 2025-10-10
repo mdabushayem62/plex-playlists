@@ -1,15 +1,18 @@
 services:
   plex-playlists:
-    build: .
+    # Option 1: Use pre-built image from GitHub Container Registry (recommended)
+    image: ghcr.io/aceofaces/plex-playlists:latest
+
+    # Option 2: Build from local source (for development)
+    # Uncomment the line below and comment out the image line above
+    # build: .
+
     container_name: plex-playlists
     restart: unless-stopped
     environment:
       # Required: Plex server configuration
       - PLEX_BASE_URL=http://localhost:32400
       - PLEX_AUTH_TOKEN=your-plex-token-here
-
-      # Data paths (config folder contains database, .env, and imported playlists)
-      - DATABASE_PATH=/config/plex-playlists.db
 
       # Timezone for cron schedules
       - TZ=America/New_York  # Adjust to your timezone
@@ -19,10 +22,8 @@ services:
       # - SPOTIFY_CLIENT_ID=your-spotify-client-id
       # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
 
-      # Optional: Customize scheduling (defaults shown)
-      # - MORNING_CRON=0 6 * * *
-      # - AFTERNOON_CRON=0 12 * * *
-      # - EVENING_CRON=0 18 * * *
+      # Optional: Customize scheduling (default shown)
+      # - DAILY_PLAYLISTS_CRON=0 5 * * *  # All three daily playlists at 5am
 
       # Optional: Customize playlist generation (defaults shown)
       # - PLAYLIST_TARGET_SIZE=50
@@ -30,14 +31,27 @@ services:
       # - HALF_LIFE_DAYS=7
       # - MAX_GENRE_SHARE=0.4
     volumes:
-      # Config folder: stores database, .env overrides, and imported playlists
+      # Config: playlists.config.json, .env overrides, genre mappings
       - ./config:/config
+      # Data: SQLite database and imported playlist CSVs
+      - ./data:/data
     # Uncomment to run a one-time playlist generation instead of scheduler
     # command: ["node", "dist/cli.js", "run", "morning"]
 
     # Network mode host allows direct connection to Plex on localhost
-    # Change to bridge if Plex is accessible via network
+    # ⚠️  Important: When using host mode, the ports mapping below is IGNORED!
+    #     The web UI will bind directly to port 8687 on your host machine.
+    #     Access it at: http://localhost:8687 or http://<host-ip>:8687
+    #
+    # Alternative: To use Docker port mapping instead:
+    #   1. Comment out the network_mode line below
+    #   2. Set PLEX_BASE_URL to your Plex server's IP (e.g., http://192.168.1.100:32400)
+    #   3. The ports mapping will then work as expected
     network_mode: host
+
+    # Web UI port mapping (only takes effect if network_mode: host is commented out)
+    ports:
+      - "8687:8687"
 
     # Healthcheck (verifies database and scheduler activity)
     # Note: Docker Compose healthcheck overrides Dockerfile HEALTHCHECK

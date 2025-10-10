@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { logger } from '../logger.js';
 import type { SpotifyTrack, YouTubeMusicTrack, NormalizedTrack } from './types.js';
+import { parseJSONFile } from './json-parser.js';
 
 const isSpotifyCSV = (headers: string[]): boolean => {
   return headers.includes('Track URI') && headers.includes('Track Name') && headers.includes('Artist Name(s)');
@@ -118,15 +119,24 @@ export const parseCSVFile = (filePath: string): NormalizedTrack[] => {
   }
 };
 
-export const parseAllCSVFiles = (directoryPath: string): Map<string, NormalizedTrack> => {
+/**
+ * Parse all CSV and JSON files in a directory
+ * Auto-detects format and handles YouTube Music JSON exports
+ */
+export const parseAllFiles = (directoryPath: string): Map<string, NormalizedTrack> => {
   const trackMap = new Map<string, NormalizedTrack>();
 
   try {
     const files = readdirSync(directoryPath);
     const csvFiles = files.filter(file => file.endsWith('.csv'));
+    const jsonFiles = files.filter(file => file.endsWith('.json'));
 
-    logger.info({ directoryPath, csvCount: csvFiles.length }, 'Parsing CSV files');
+    logger.info(
+      { directoryPath, csvCount: csvFiles.length, jsonCount: jsonFiles.length },
+      'Parsing files'
+    );
 
+    // Process CSV files
     for (const file of csvFiles) {
       const filePath = join(directoryPath, file);
       const stat = statSync(filePath);
@@ -151,7 +161,35 @@ export const parseAllCSVFiles = (directoryPath: string): Map<string, NormalizedT
       }
     }
 
-    logger.info({ uniqueTracks: trackMap.size }, 'Completed parsing all CSV files');
+    // Process JSON files (YouTube Music exports)
+    for (const file of jsonFiles) {
+      const filePath = join(directoryPath, file);
+      const stat = statSync(filePath);
+
+      if (!stat.isFile()) {
+        continue;
+      }
+
+      const tracks = parseJSONFile(filePath);
+
+      for (const track of tracks) {
+        // Use artist + title as unique key (case-insensitive)
+        const key = `${track.artist.toLowerCase()}::${track.title.toLowerCase()}`;
+
+        const existing = trackMap.get(key);
+        if (existing) {
+          // Merge source playlists
+          existing.sourcePlaylists.push(...track.sourcePlaylists);
+        } else {
+          trackMap.set(key, track);
+        }
+      }
+    }
+
+    logger.info(
+      { uniqueTracks: trackMap.size, csvFiles: csvFiles.length, jsonFiles: jsonFiles.length },
+      'Completed parsing all files'
+    );
     return trackMap;
   } catch (error) {
     logger.error({ directoryPath, error }, 'Failed to read directory');

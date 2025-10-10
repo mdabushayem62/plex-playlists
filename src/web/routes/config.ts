@@ -1,0 +1,774 @@
+/**
+ * Configuration routes
+ * View and manage application configuration
+ */
+
+import { Router } from 'express';
+import { getViewPath } from '../server.js';
+import { APP_ENV } from '../../config.js';
+import { promises as fs } from 'fs';
+import { getConfigFilePath } from '../../init.js';
+import {
+  setSettingWithWriteback,
+  getSetting,
+  getAllSettingsWithMetadata,
+  validateSetting,
+  getSettingsHistory,
+  recordSettingChange,
+  RESTART_REQUIRED_SETTINGS,
+  type SettingKey
+} from '../../db/settings-service.js';
+import { getDb } from '../../db/index.js';
+import { setupState } from '../../db/schema.js';
+import { eq } from 'drizzle-orm';
+
+export const configRouter = Router();
+
+// Middleware to check setup status for navigation
+async function getSetupStatus() {
+  const db = getDb();
+  const setupStates = await db.select().from(setupState).limit(1);
+  return setupStates.length > 0 && setupStates[0].completed;
+}
+
+/**
+ * Main configuration page - Overview dashboard
+ */
+configRouter.get('/', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    // Build config object for overview page
+    const config = {
+      server: {
+        plexUrl: APP_ENV.PLEX_BASE_URL,
+        databasePath: APP_ENV.DATABASE_PATH,
+        webUiEnabled: APP_ENV.WEB_UI_ENABLED,
+        webUiPort: APP_ENV.WEB_UI_PORT
+      },
+      apis: {
+        lastfmConfigured: !!(await getSetting('lastfm_api_key') || APP_ENV.LASTFM_API_KEY),
+        spotifyConfigured: !!(
+          (await getSetting('spotify_client_id') || APP_ENV.SPOTIFY_CLIENT_ID) &&
+          (await getSetting('spotify_client_secret') || APP_ENV.SPOTIFY_CLIENT_SECRET)
+        )
+      },
+      scheduling: {
+        dailyPlaylists: await getSetting('daily_playlists_cron') || APP_ENV.DAILY_PLAYLISTS_CRON
+      },
+      scoring: {
+        halfLifeDays: parseFloat(await getSetting('half_life_days') || String(APP_ENV.HALF_LIFE_DAYS)),
+        maxGenreShare: parseFloat(await getSetting('max_genre_share') || String(APP_ENV.MAX_GENRE_SHARE)),
+        playlistTargetSize: parseInt(await getSetting('playlist_target_size') || String(APP_ENV.PLAYLIST_TARGET_SIZE)),
+        maxPerArtist: parseInt(await getSetting('max_per_artist') || String(APP_ENV.MAX_PER_ARTIST)),
+        historyDays: parseInt(await getSetting('history_days') || String(APP_ENV.HISTORY_DAYS)),
+        playCountSaturation: parseInt(await getSetting('play_count_saturation') || String(APP_ENV.PLAY_COUNT_SATURATION))
+      }
+    };
+
+    // Render TSX component
+    const { ConfigIndexPage } = await import(getViewPath('config/index.tsx'));
+    const html = ConfigIndexPage({
+      config,
+      page: 'config',
+      setupComplete
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Config index page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Consolidated Settings Page - All configuration in one place
+ */
+configRouter.get('/settings', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+    const { genreCache } = await import('../../db/schema.js');
+    const db = getDb();
+
+    // Get all settings with metadata
+    const allSettings = await getAllSettingsWithMetadata();
+
+    // Filter by category
+    const plexSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'plex')
+      .reduce((acc, [key, metadata]) => {
+        acc[key] = metadata;
+        return acc;
+      }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
+
+    const apiSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'api')
+      .reduce((acc, [key, metadata]) => {
+        acc[key] = metadata;
+        return acc;
+      }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
+
+    const scoringSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'scoring')
+      .reduce((acc, [key, metadata]) => {
+        acc[key] = metadata;
+        return acc;
+      }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
+
+    const schedulingSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'scheduling')
+      .reduce((acc, [key, metadata]) => {
+        acc[key] = metadata;
+        return acc;
+      }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
+
+    // Get cache stats
+    const cacheEntries = await db.select().from(genreCache);
+    const cacheStats = {
+      total: cacheEntries.length,
+      bySource: cacheEntries.reduce((acc, entry) => {
+        acc[entry.source] = (acc[entry.source] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+      expired: cacheEntries.filter(e => e.expiresAt && e.expiresAt < new Date()).length
+    };
+
+    // Get playlist config
+    const configPath = getConfigFilePath('playlists.config.json');
+    let playlistConfig = null;
+    try {
+      const content = await fs.readFile(configPath, 'utf-8');
+      playlistConfig = JSON.parse(content);
+    } catch {
+      // Config file doesn't exist or is invalid - that's okay
+    }
+
+    // System env vars (read-only)
+    const envVars = {
+      database: {
+        path: APP_ENV.DATABASE_PATH
+      },
+      webUi: {
+        enabled: APP_ENV.WEB_UI_ENABLED,
+        port: APP_ENV.WEB_UI_PORT
+      }
+    };
+
+    // Render TSX component
+    const { SettingsPage } = await import('../views/config/settings.js');
+    const html = SettingsPage({
+      plexSettings,
+      apiSettings,
+      scoringSettings,
+      schedulingSettings,
+      cacheStats,
+      playlistConfig,
+      configPath,
+      envVars,
+      page: 'config',
+      setupComplete
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Settings page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Scoring parameters detail page
+ */
+configRouter.get('/scoring', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    // Get settings with metadata
+    const allSettings = await getAllSettingsWithMetadata();
+
+    // Filter to only scoring category
+    const scoringSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'scoring')
+      .reduce(
+        (acc, [key, metadata]) => {
+          acc[key] = metadata;
+          return acc;
+        },
+        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
+      );
+
+    // Get recent change history
+    const history = await getSettingsHistory(20);
+    const scoringHistory = history.filter(h =>
+      Object.keys(scoringSettings).includes(h.settingKey)
+    );
+
+    // Render TSX component
+    const { ScoringPage } = await import(getViewPath('config/scoring.tsx'));
+    const html = ScoringPage({
+      scoringSettings,
+      history: scoringHistory,
+      page: 'config',
+      setupComplete,
+      breadcrumbs: [
+        { label: 'Dashboard', url: '/' },
+        { label: 'Configuration', url: '/config' },
+        { label: 'Scoring Parameters', url: null }
+      ]
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Scoring page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Scheduling configuration detail page
+ */
+configRouter.get('/scheduling', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    const schedules = {
+      dailyPlaylists: {
+        cron: APP_ENV.DAILY_PLAYLISTS_CRON,
+        description: 'Daily playlists generation time (all three run sequentially)',
+        default: '0 5 * * * (5:00 AM daily)'
+      }
+    };
+
+    // Render TSX component
+    const { SchedulingPage } = await import(getViewPath('config/scheduling.tsx'));
+    const html = SchedulingPage({
+      schedules,
+      page: 'config',
+      setupComplete,
+      breadcrumbs: [
+        { label: 'Dashboard', url: '/' },
+        { label: 'Configuration', url: '/config' },
+        { label: 'Scheduling', url: null }
+      ]
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch {
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Playlist configuration page
+ */
+configRouter.get('/playlists', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    // Read playlists.config.json
+    const configPath = getConfigFilePath('playlists.config.json');
+    let playlistConfig = null;
+    let error = null;
+
+    try {
+      const content = await fs.readFile(configPath, 'utf-8');
+      playlistConfig = JSON.parse(content);
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to read config';
+    }
+
+    // Render TSX component
+    const { PlaylistsConfigPage } = await import(getViewPath('config/playlists.tsx'));
+    const html = PlaylistsConfigPage({
+      config: playlistConfig,
+      configPath,
+      error,
+      page: 'config',
+      setupComplete,
+      breadcrumbs: [
+        { label: 'Dashboard', url: '/' },
+        { label: 'Configuration', url: '/config' },
+        { label: 'Playlists Config', url: null }
+      ]
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Playlists config page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Environment variables page
+ */
+configRouter.get('/environment', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    // Get all settings with metadata for inline editing
+    const allSettings = await getAllSettingsWithMetadata();
+
+    // Filter to Plex and API categories
+    const plexSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'plex')
+      .reduce(
+        (acc, [key, metadata]) => {
+          acc[key] = metadata;
+          return acc;
+        },
+        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
+      );
+
+    const apiSettings = Object.entries(allSettings)
+      .filter(([, metadata]) => metadata.category === 'api')
+      .reduce(
+        (acc, [key, metadata]) => {
+          acc[key] = metadata;
+          return acc;
+        },
+        {} as Record<string, typeof allSettings[keyof typeof allSettings]>
+      );
+
+    // Show all non-sensitive env vars (read-only info)
+    const envVars = {
+      database: {
+        path: APP_ENV.DATABASE_PATH
+      },
+      webUi: {
+        enabled: APP_ENV.WEB_UI_ENABLED,
+        port: APP_ENV.WEB_UI_PORT
+      }
+    };
+
+    // Render TSX component
+    const { EnvironmentPage } = await import(getViewPath('config/environment.tsx'));
+    const html = EnvironmentPage({
+      plexSettings,
+      apiSettings,
+      envVars,
+      page: 'config',
+      setupComplete,
+      breadcrumbs: [
+        { label: 'Dashboard', url: '/' },
+        { label: 'Configuration', url: '/config' },
+        { label: 'Environment', url: null }
+      ]
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch {
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Save scoring parameters
+ */
+configRouter.post('/scoring/save', async (req, res) => {
+  try {
+    const {
+      halfLifeDays,
+      maxGenreShare,
+      playCountSaturation,
+      playlistTargetSize,
+      maxPerArtist,
+      historyDays,
+      fallbackLimit
+    } = req.body;
+
+    // Validate numbers
+    const params: Array<{ key: SettingKey; value: unknown }> = [
+      { key: 'half_life_days', value: halfLifeDays },
+      { key: 'max_genre_share', value: maxGenreShare },
+      { key: 'play_count_saturation', value: playCountSaturation },
+      { key: 'playlist_target_size', value: playlistTargetSize },
+      { key: 'max_per_artist', value: maxPerArtist },
+      { key: 'history_days', value: historyDays },
+      { key: 'fallback_limit', value: fallbackLimit }
+    ];
+
+    for (const param of params) {
+      if (param.value !== undefined && param.value !== '') {
+        await setSettingWithWriteback(param.key, String(param.value), true);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * Save scheduling configuration
+ */
+configRouter.post('/scheduling/save', async (req, res) => {
+  try {
+    const { dailyPlaylistsCron } = req.body;
+
+    if (dailyPlaylistsCron) await setSettingWithWriteback('daily_playlists_cron', dailyPlaylistsCron, true);
+
+    res.json({ success: true });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * Save API keys
+ */
+configRouter.post('/environment/save-api-keys', async (req, res) => {
+  try {
+    const { lastfmApiKey, spotifyClientId, spotifyClientSecret } = req.body;
+
+    if (lastfmApiKey !== undefined) {
+      await setSettingWithWriteback('lastfm_api_key', lastfmApiKey || null, true);
+    }
+    if (spotifyClientId !== undefined) {
+      await setSettingWithWriteback('spotify_client_id', spotifyClientId || null, true);
+    }
+    if (spotifyClientSecret !== undefined) {
+      await setSettingWithWriteback('spotify_client_secret', spotifyClientSecret || null, true);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * Save playlist configuration
+ */
+configRouter.post('/playlists/save', async (req, res) => {
+  try {
+    const { playlistsConfig } = req.body;
+
+    if (!playlistsConfig) {
+      return res.status(400).json({ error: 'Missing playlist configuration' });
+    }
+
+    // Validate JSON structure
+    let config;
+    try {
+      config = JSON.parse(playlistsConfig);
+    } catch {
+      return res.status(400).json({ error: 'Invalid JSON format' });
+    }
+
+    // Basic validation
+    if (config.genrePlaylists) {
+      if (config.genrePlaylists.pinned && !Array.isArray(config.genrePlaylists.pinned)) {
+        return res.status(400).json({ error: 'pinned must be an array' });
+      }
+    }
+
+    // Save to database and write back to .env
+    await setSettingWithWriteback('playlists_config', playlistsConfig, true);
+
+    res.json({ success: true });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * API: Get all settings with metadata for inline editing
+ */
+configRouter.get('/api/settings', async (req, res) => {
+  try {
+    const settings = await getAllSettingsWithMetadata();
+    res.json({ settings });
+  } catch (error) {
+    console.error('Settings API error:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+/**
+ * API: Update single setting with validation
+ */
+configRouter.put('/api/settings/:key', async (req, res) => {
+  try {
+    const key = req.params.key as SettingKey;
+    const { value } = req.body;
+
+    if (value === undefined) {
+      return res.status(400).json({ error: 'Missing value parameter' });
+    }
+
+    // Validate
+    const validation = validateSetting(key, String(value));
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    // Get old value for history
+    const oldValue = await getSetting(key);
+
+    // Save to database and write back to .env file
+    await setSettingWithWriteback(key, String(value), true);
+
+    // Log to history
+    await recordSettingChange(key, oldValue, String(value), 'web_ui');
+
+    // Set toast notification headers for HTMX
+    res.setHeader('X-Toast-Message', `${key} updated successfully`);
+    res.setHeader('X-Toast-Type', 'success');
+
+    if (RESTART_REQUIRED_SETTINGS.includes(key)) {
+      // Add additional warning toast for restart required
+      res.setHeader('X-Toast-Warning', 'Restart required for this change to take effect');
+    }
+
+    res.json({
+      success: true,
+      message: `${key} updated successfully`,
+      requiresRestart: RESTART_REQUIRED_SETTINGS.includes(key)
+    });
+  } catch (error) {
+    console.error('Setting update error:', error);
+    res.setHeader('X-Toast-Message', 'Failed to update setting');
+    res.setHeader('X-Toast-Type', 'error');
+    res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+/**
+ * API: Batch update settings
+ */
+configRouter.post('/api/settings/batch', async (req, res) => {
+  try {
+    const { settings: settingsToUpdate } = req.body;
+
+    if (!settingsToUpdate || typeof settingsToUpdate !== 'object') {
+      return res.status(400).json({ error: 'Invalid settings object' });
+    }
+
+    const results = [];
+    let requiresRestart = false;
+
+    // Validate all first
+    for (const [key, value] of Object.entries(settingsToUpdate)) {
+      const validation = validateSetting(key as SettingKey, String(value));
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: `Validation failed for ${key}: ${validation.error}`
+        });
+      }
+    }
+
+    // All valid - proceed with updates
+    for (const [key, value] of Object.entries(settingsToUpdate)) {
+      const typedKey = key as SettingKey;
+      const oldValue = await getSetting(typedKey);
+      await setSettingWithWriteback(typedKey, String(value), true);
+
+      await recordSettingChange(typedKey, oldValue, String(value), 'web_ui');
+
+      results.push({ key, success: true });
+
+      if (RESTART_REQUIRED_SETTINGS.includes(typedKey)) {
+        requiresRestart = true;
+      }
+    }
+
+    res.json({ success: true, results, requiresRestart });
+  } catch (error) {
+    console.error('Batch update error:', error);
+    res.status(500).json({ error: 'Batch update failed' });
+  }
+});
+
+/**
+ * API: Reset setting to default (delete from DB)
+ */
+configRouter.delete('/api/settings/:key', async (req, res) => {
+  try {
+    const key = req.params.key as SettingKey;
+
+    // Get old value for history
+    const oldValue = await getSetting(key);
+
+    // Delete from database and .env file (falls back to env var)
+    await setSettingWithWriteback(key, null, true);
+
+    // Log to history
+    await recordSettingChange(key, oldValue, 'RESET_TO_DEFAULT', 'web_ui');
+
+    // Set toast notification headers
+    res.setHeader('X-Toast-Message', `${key} reset to default`);
+    res.setHeader('X-Toast-Type', 'success');
+
+    res.json({ success: true, message: `${key} reset to default` });
+  } catch (error) {
+    console.error('Setting reset error:', error);
+    res.setHeader('X-Toast-Message', 'Failed to reset setting');
+    res.setHeader('X-Toast-Type', 'error');
+    res.status(500).json({ error: 'Failed to reset setting' });
+  }
+});
+
+/**
+ * API: Get settings change history
+ */
+configRouter.get('/api/settings/history', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const history = await getSettingsHistory(limit);
+
+    res.json({ history });
+  } catch (error) {
+    console.error('Settings history error:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+/**
+ * Reset setup wizard (allows re-running)
+ */
+configRouter.post('/reset-setup', async (req, res) => {
+  try {
+    const db = getDb();
+
+    // Mark setup as incomplete and reset to welcome step
+    const setupStates = await db.select().from(setupState).limit(1);
+
+    if (setupStates.length > 0) {
+      await db
+        .update(setupState)
+        .set({
+          currentStep: 'welcome',
+          completed: false,
+          updatedAt: new Date()
+        })
+        .where(eq(setupState.id, setupStates[0].id));
+    }
+
+    res.json({ success: true, message: 'Setup wizard has been reset' });
+  } catch (error) {
+    console.error('Reset setup error:', error);
+    res.status(500).json({ error: 'Failed to reset setup' });
+  }
+});
+
+/**
+ * Test Plex connection
+ */
+configRouter.get('/api/test-plex-connection', async (req, res) => {
+  try {
+    const { getPlexServer } = await import('../../plex/client.js');
+    const plex = await getPlexServer();
+
+    // Try to get server info
+    const response = await plex.query('/');
+    const serverName = response.MediaContainer?.friendlyName || 'Unknown';
+
+    res.json({
+      success: true,
+      message: 'Plex connection successful',
+      serverName
+    });
+  } catch (error) {
+    console.error('Plex connection test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Connection failed'
+    });
+  }
+});
+
+/**
+ * Test Last.fm API
+ */
+configRouter.get('/api/test-lastfm', async (req, res) => {
+  try {
+    const apiKey = await getSetting('lastfm_api_key') || APP_ENV.LASTFM_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Last.fm API key not configured'
+      });
+    }
+
+    // Test with a simple artist search
+    const testUrl = `http://ws.audioscrobbler.com/2.0/?method=artist.getinfo&artist=Radiohead&api_key=${apiKey}&format=json`;
+    const response = await fetch(testUrl);
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.message || 'Last.fm API error');
+    }
+
+    res.json({
+      success: true,
+      message: 'Last.fm API connection successful'
+    });
+  } catch (error) {
+    console.error('Last.fm test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'API test failed'
+    });
+  }
+});
+
+/**
+ * Test Spotify API
+ */
+configRouter.get('/api/test-spotify', async (req, res) => {
+  try {
+    const clientId = await getSetting('spotify_client_id') || APP_ENV.SPOTIFY_CLIENT_ID;
+    const clientSecret = await getSetting('spotify_client_secret') || APP_ENV.SPOTIFY_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({
+        success: false,
+        error: 'Spotify credentials not configured'
+      });
+    }
+
+    // Test by getting an access token
+    const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: 'Basic ' + Buffer.from(clientId + ':' + clientSecret).toString('base64')
+      },
+      body: 'grant_type=client_credentials'
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to authenticate with Spotify');
+    }
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenData.access_token) {
+      throw new Error('No access token received from Spotify');
+    }
+
+    res.json({
+      success: true,
+      message: 'Spotify API connection successful'
+    });
+  } catch (error) {
+    console.error('Spotify test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'API test failed'
+    });
+  }
+});

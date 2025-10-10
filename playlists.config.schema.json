@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/yourusername/plex-playlists/playlists.config.schema.json",
+  "title": "Plex Playlists Configuration",
+  "description": "Configuration for genre-based playlist generation",
+  "type": "object",
+  "required": ["genrePlaylists"],
+  "properties": {
+    "genrePlaylists": {
+      "type": "object",
+      "description": "Genre-based playlist configuration",
+      "required": ["pinned", "autoDiscover"],
+      "properties": {
+        "pinned": {
+          "type": "array",
+          "description": "Manually configured genre playlists",
+          "items": {
+            "type": "object",
+            "required": ["name", "genre", "cron", "enabled"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Playlist window name (used as identifier)",
+                "pattern": "^[a-z0-9-]+$",
+                "minLength": 1,
+                "examples": ["synthwave", "psytrance", "power-metal"]
+              },
+              "genre": {
+                "type": "string",
+                "description": "Genre to filter for (case-insensitive substring match)",
+                "minLength": 1,
+                "examples": ["synthwave", "power metal", "trance"]
+              },
+              "cron": {
+                "type": "string",
+                "description": "Cron expression for playlist generation schedule",
+                "pattern": "^(\\*|([0-5]?[0-9])) (\\*|([01]?[0-9]|2[0-3])) (\\*|([1-2]?[0-9]|3[01])) (\\*|([1-9]|1[0-2])) (\\*|[0-6])$",
+                "examples": ["0 7 * * 1", "0 12 * * *", "30 18 * * 0"]
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether this playlist is active",
+                "default": true
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional description shown in playlist summary"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "autoDiscover": {
+          "type": "object",
+          "description": "Automatic genre playlist discovery based on library analysis",
+          "required": ["enabled", "minArtists", "maxPlaylists", "exclude", "schedule"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable automatic genre discovery",
+              "default": false
+            },
+            "minArtists": {
+              "type": "integer",
+              "description": "Minimum number of artists required for a genre to get a playlist",
+              "minimum": 1,
+              "default": 5,
+              "examples": [3, 5, 10]
+            },
+            "maxPlaylists": {
+              "type": "integer",
+              "description": "Maximum number of auto-discovered genre playlists",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "examples": [10, 20, 30]
+            },
+            "exclude": {
+              "type": "array",
+              "description": "Genre names to exclude from auto-discovery (typically broad genres)",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "default": ["electronic", "edm", "electronica"],
+              "examples": [
+                ["electronic", "edm"],
+                ["rock", "pop", "alternative"]
+              ]
+            },
+            "schedule": {
+              "type": "string",
+              "description": "Cron expression for when auto-discovery runs",
+              "pattern": "^(\\*|([0-5]?[0-9])) (\\*|([01]?[0-9]|2[0-3])) (\\*|([1-2]?[0-9]|3[01])) (\\*|([1-9]|1[0-2])) (\\*|[0-6])$",
+              "default": "0 15 * * 1",
+              "examples": ["0 15 * * 1", "0 3 * * 0"]
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description for auto-discovered playlists"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
