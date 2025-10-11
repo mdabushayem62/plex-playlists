@@ -34,10 +34,10 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
           <style>{`
             /* *arr-Style High Density Design - Optimized for 1080p homelab displays */
             :root {
-              --spacing-compact: 0.25rem;   /* 4px - aggressive */
-              --spacing-normal: 0.5rem;     /* 8px */
-              --spacing-section: 0.75rem;   /* 12px */
-              --spacing-large: 1rem;        /* 16px */
+              --spacing-compact: 0.25rem;   /* 4px - keep for very tight elements */
+              --spacing-normal: 0.375rem;   /* 6px - tighter (was 8px) */
+              --spacing-section: 0.5rem;    /* 8px - tighter (was 12px) */
+              --spacing-large: 0.75rem;     /* 12px - tighter (was 16px) */
             }
 
             /* Muted color overrides for dark theme */
@@ -56,8 +56,8 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
 
             /* Override PicoCSS defaults for maximum density */
             * {
-              --pico-spacing: 0.5rem;
-              --pico-typography-spacing-vertical: 0.75rem;
+              --pico-spacing: 0.375rem;
+              --pico-typography-spacing-vertical: 0.5rem;
             }
 
             /* Custom styles */
@@ -86,50 +86,50 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
               margin-right: 0.25rem;
             }
 
-            /* High-density stat cards */
+            /* High-density stat cards - Tautulli style */
             .stat-card {
               background: var(--pico-card-background-color);
-              padding: 0.5rem;
+              padding: 0.375rem 0.5rem;  /* Tighter vertical padding */
               border-radius: 0.25rem;
-              margin-bottom: 0.5rem;
+              margin-bottom: 0.375rem;   /* Tighter spacing between cards */
             }
             .stat-card h3 {
               margin: 0 0 0.125rem 0;
               font-size: 1.25rem;
-              line-height: 1.2;
+              line-height: 1.1;          /* Tighter line height */
               font-weight: 600;
             }
             .stat-card p {
               margin: 0;
               color: var(--pico-muted-color);
               font-size: 0.75rem;
-              line-height: 1.3;
+              line-height: 1.2;          /* Tighter line height */
             }
             .stat-card small {
               font-size: 0.7rem;
-              line-height: 1.2;
+              line-height: 1.1;
             }
 
             /* Compact header */
             header {
-              padding: 0.5rem 0;
+              padding: 0.375rem 0;       /* Tighter padding */
               border-bottom: 1px solid var(--pico-muted-border-color);
-              margin-bottom: 0.75rem;
+              margin-bottom: 0.5rem;     /* Tighter margin */
             }
             header h1 {
               margin: 0;
-              font-size: 1.25rem;
+              font-size: 1.125rem;       /* Slightly smaller */
               line-height: 1.3;
               font-weight: 600;
             }
 
             /* Compact navigation */
             nav.main-nav {
-              margin-top: 0.5rem;
+              margin-top: 0.375rem;      /* Tighter spacing */
             }
             nav.main-nav ul {
               display: flex;
-              gap: 0.5rem;
+              gap: 0.375rem;             /* Tighter gap between items */
               list-style: none;
               padding: 0;
               margin: 0;
@@ -138,42 +138,46 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
               font-size: 0.8125rem;
               text-decoration: none;
               padding: 0.25rem 0.5rem;
+              border-bottom: 2px solid transparent;
+              transition: all 0.2s ease;
             }
             nav.main-nav a:hover {
               background: var(--pico-card-background-color);
               border-radius: 0.25rem;
+              border-bottom-color: transparent;
             }
             nav.main-nav a.active {
               font-weight: 600;
               background: var(--pico-card-background-color);
               border-radius: 0.25rem;
+              border-bottom: 2px solid var(--pico-primary);
             }
 
-            /* Compact sections */
+            /* Compact sections - Tautulli density */
             section {
-              margin-top: 1rem !important;
-              margin-bottom: 1rem !important;
-            }
-
-            /* Compact articles/cards */
-            article {
+              margin-top: 0.75rem !important;      /* Reduced from 1rem */
               margin-bottom: 0.75rem !important;
-              padding: 0.75rem;
             }
 
-            /* High-density tables */
+            /* Compact articles/cards - Tautulli density */
+            article {
+              margin-bottom: 0.5rem !important;    /* Reduced from 0.75rem */
+              padding: 0.5rem 0.625rem;            /* Tighter vertical, keep horizontal readable */
+            }
+
+            /* High-density tables - Tautulli style */
             table {
-              margin-top: 0.5rem;
-              margin-bottom: 0.5rem;
-              font-size: 0.875rem;
+              margin-top: 0.375rem;        /* Tighter margins */
+              margin-bottom: 0.375rem;
+              font-size: 0.8125rem;        /* Slightly smaller */
             }
             table th,
             table td {
-              padding: 0.375rem 0.5rem;
-              line-height: 1.4;
+              padding: 0.3125rem 0.5rem;   /* Even tighter vertical padding (5px) */
+              line-height: 1.3;            /* Tighter line height */
             }
             table th {
-              font-size: 0.8125rem;
+              font-size: 0.75rem;          /* Smaller headers */
               font-weight: 600;
               text-transform: uppercase;
               letter-spacing: 0.025em;
@@ -181,50 +185,58 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
 
             /* Compact forms */
             form label {
-              margin-bottom: 0.5rem;
+              margin-bottom: 0.375rem;     /* Tighter */
               font-size: 0.875rem;
             }
             input, select, textarea {
-              margin-bottom: 0.5rem;
-              padding: 0.375rem 0.5rem;
+              margin-bottom: 0.375rem;     /* Tighter */
+              padding: 0.3125rem 0.5rem;   /* Tighter vertical padding */
               font-size: 0.875rem;
             }
 
-            /* Compact headings */
+            /* Compact headings - Tautulli density */
             h2 {
-              margin: 0 0 0.5rem 0;
-              line-height: 1.3;
-              font-size: 1.5rem;
+              margin: 0 0 0.375rem 0;      /* Tighter margin */
+              line-height: 1.2;            /* Tighter line height */
+              font-size: 1.375rem;         /* Slightly smaller */
               font-weight: 600;
             }
             h3 {
-              margin: 0 0 0.375rem 0;
-              font-size: 1.125rem;
-              line-height: 1.3;
+              margin: 0 0 0.3125rem 0;     /* Tighter margin */
+              font-size: 1.0625rem;        /* Slightly smaller */
+              line-height: 1.2;            /* Tighter line height */
               font-weight: 600;
             }
             h4 {
               margin: 0 0 0.25rem 0;
-              font-size: 0.9375rem;
-              line-height: 1.3;
+              font-size: 0.875rem;         /* Slightly smaller */
+              line-height: 1.2;            /* Tighter line height */
               font-weight: 600;
             }
 
             /* Compact buttons */
             button, [role="button"] {
-              padding: 0.375rem 0.75rem;
+              padding: 0.3125rem 0.625rem; /* Tighter padding */
               font-size: 0.8125rem;
-              margin: 0.25rem 0;
+              margin: 0.1875rem 0;         /* Tighter margin */
+              transition: all 0.15s ease;
+            }
+            button:hover, [role="button"]:hover {
+              transform: translateY(-1px);
+              filter: brightness(1.1);
+            }
+            button:active, [role="button"]:active {
+              transform: translateY(0);
             }
             button.action-btn, .action-btn {
-              padding: 0.25rem 0.5rem;
+              padding: 0.1875rem 0.4375rem; /* Tighter padding */
               font-size: 0.75rem;
             }
 
             /* Compact paragraphs */
             p {
-              margin-bottom: 0.5rem;
-              line-height: 1.5;
+              margin-bottom: 0.375rem;     /* Tighter spacing */
+              line-height: 1.4;            /* Tighter line height */
             }
             p:last-child {
               margin-bottom: 0;
@@ -232,16 +244,16 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
 
             /* Collapsible sections for dense settings pages */
             details {
-              margin-bottom: 0.75rem;
+              margin-bottom: 0.5rem;       /* Tighter spacing */
               border: 1px solid var(--pico-muted-border-color);
               border-radius: 0.25rem;
               padding: 0;
             }
             details summary {
-              padding: 0.5rem 0.75rem;
+              padding: 0.375rem 0.625rem;  /* Tighter padding */
               cursor: pointer;
               font-weight: 600;
-              font-size: 0.9375rem;
+              font-size: 0.875rem;         /* Slightly smaller */
               user-select: none;
               background: var(--pico-card-background-color);
               border-radius: 0.25rem;
@@ -252,21 +264,72 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
             details[open] summary {
               border-bottom: 1px solid var(--pico-muted-border-color);
               border-radius: 0.25rem 0.25rem 0 0;
-              margin-bottom: 0.5rem;
+              margin-bottom: 0.375rem;     /* Tighter spacing */
             }
             details > *:not(summary) {
-              padding: 0 0.75rem 0.75rem 0.75rem;
+              padding: 0 0.625rem 0.5rem 0.625rem; /* Tighter padding */
             }
 
-            /* Grid utilities for dense layouts */
+            /* Grid utilities for dense layouts - Tautulli style */
             .grid-dense {
               display: grid;
-              gap: 0.5rem;
+              gap: 0.375rem;               /* Tighter gap */
             }
-            .grid-2 { grid-template-columns: repeat(2, 1fr); }
-            .grid-3 { grid-template-columns: repeat(3, 1fr); }
-            .grid-4 { grid-template-columns: repeat(4, 1fr); }
-            .grid-auto { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+            .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); }
+            .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+            .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+            .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); }
+            .grid-8 { display: grid; grid-template-columns: repeat(8, 1fr); }
+            .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.375rem; } /* Fit more cards */
+            .grid-auto-wide { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.375rem; } /* Original size */
+
+            /* Flex utilities */
+            .flex-between {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .flex-start {
+              display: flex;
+              align-items: flex-start;
+              gap: var(--spacing-compact);
+            }
+            .flex-gap { gap: var(--spacing-normal); }
+            .flex-gap-sm { gap: var(--spacing-compact); }
+
+            /* Spacing utilities */
+            .mb-section { margin-bottom: var(--spacing-section); }
+            .mb-normal { margin-bottom: var(--spacing-normal); }
+            .mt-section { margin-top: var(--spacing-section); }
+            .pt-section { padding-top: var(--spacing-section); }
+            .border-top { border-top: 1px solid var(--pico-muted-border-color); }
+
+            /* Card/Section utilities */
+            .card-section {
+              background: var(--pico-card-background-color);
+              padding: 0.625rem;           /* Slightly tighter than default article */
+              border-radius: 0.25rem;
+              margin-bottom: var(--spacing-section);
+            }
+            .row-item {
+              padding: 0.375rem 0.5rem;
+              background: var(--pico-background-color);
+              border-radius: 0.25rem;
+            }
+
+            /* Text utilities */
+            .text-muted { color: var(--pico-muted-color); }
+            .text-sm { font-size: 0.8125rem; }
+            .text-xs { font-size: 0.75rem; }
+
+            /* Chart/visualization containers */
+            .chart-container {
+              min-height: 400px;
+              position: relative;
+            }
+            .chart-container canvas {
+              max-height: 500px;
+            }
 
             /* Toast notifications */
             #toast-container {

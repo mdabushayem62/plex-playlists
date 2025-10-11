@@ -2,9 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Brevity is the soul of wit.**
+
 ## Project Overview
 
-A TypeScript-based automated Plex playlist generator that creates three daily playlists (morning, afternoon, evening) using time-windowed listening history, exponential recency weighting, and sonic similarity expansion.
+A TypeScript-based automated Plex playlist generator that creates time-based daily playlists, weekly discovery/throwback playlists, and custom genre/mood playlists using exponential recency weighting, epsilon-greedy selection, and sonic similarity expansion.
+
+**For user-facing documentation:** See [docs/](docs/) directory. This file is for architecture and development.
+
+---
 
 ## Essential Commands
 
@@ -21,8 +27,10 @@ npm run test:watch       # Run tests in watch mode
 ### CLI Usage
 ```bash
 plex-playlists start              # Start scheduler (cron-based)
-plex-playlists run <window>       # Run single window (morning|afternoon|evening)
+plex-playlists run <window>       # Run single window (morning|afternoon|evening|discovery|throwback)
 plex-playlists run-all            # Run all three daily playlists sequentially
+plex-playlists run discovery      # Generate weekly discovery playlist
+plex-playlists run throwback      # Generate weekly throwback playlist
 ```
 
 ### Database
@@ -69,10 +77,13 @@ The `DailyPlaylistRunner` orchestrates the entire generation flow:
    - Merges with primary candidates (deduplicated by `ratingKey`)
 
 5. **Selection** (`selector.ts`)
-   - Three-pass selection with progressive constraint relaxation:
+   - **Epsilon-greedy strategy**: 85% exploitation (top-scored) + 15% exploration (random diverse)
+   - Exploitation phase uses three-pass selection with progressive constraint relaxation:
      - Pass 1: Both genre limit (≤40% per genre) and artist limit (≤2 per artist)
      - Pass 2: Artist limit only
      - Pass 3: No constraints
+   - Exploration phase randomly selects diverse tracks (prioritizes new artists/genres)
+   - **Cross-playlist exclusions**: Excludes tracks from other playlists in last 7 days
    - Target: 50 tracks per playlist
 
 6. **Sonic Expansion** (`sonic-expander.ts`)
@@ -90,11 +101,65 @@ The `DailyPlaylistRunner` orchestrates the entire generation flow:
 
 ### Key Data Flow
 
+**Standard Playlists (Time-based):**
 ```
 HistoryEntry[] → AggregatedHistory[] → CandidateTrack[] → Selected[] → Plex Playlist
                                               ↓
                                      (fallback + sonic expansion if needed)
 ```
+
+**Discovery Playlist (Weekly):**
+```
+All Library Tracks → Filter by Last Play > 90 days → Discovery Score → Selected[] → Plex Playlist
+```
+
+**Throwback Playlist (Weekly):**
+```
+History (2-5 years ago) → Aggregate by Track → Filter Recent Plays → Throwback Score → Selected[] → Plex Playlist
+```
+
+### Discovery Playlist Algorithm (`playlist/discovery.ts`)
+
+The discovery playlist helps rediscover forgotten gems from your library:
+
+**Strategy:**
+- Scans entire music library (not just listening history)
+- Filters tracks last played > 90 days ago OR never played
+- Scores tracks using: `qualityScore × playCountPenalty × recencyPenalty`
+
+**Scoring Components:**
+1. **Quality Score** (0-1): Star rating weight OR play count proxy for unrated tracks
+2. **Play Count Penalty** (0-1): `1 - min(playCount, saturation) / saturation` - rewards less-played tracks
+3. **Recency Penalty** (0-1): `min(daysSincePlay / 365, 1)` - rewards longer-forgotten tracks
+
+**Benefits:**
+- Rediscover high-quality tracks you haven't heard in months
+- Surface never-played tracks that might be hidden gems
+- Balances quality (ratings) with novelty (forgotten tracks)
+
+### Throwback Playlist Algorithm (`playlist/throwback.ts`)
+
+The throwback playlist brings back nostalgic tracks from your past:
+
+**Strategy:**
+- Scans listening history from 2-5 years ago (configurable window)
+- Excludes tracks played in last 90 days (maintains freshness)
+- Scores tracks using: `nostalgiaWeight × playCountInWindow × qualityScore`
+
+**Scoring Components:**
+1. **Nostalgia Weight** (0-1): Older within window = higher score (linear scale)
+2. **Play Count Weight** (0-1): Normalized by saturation - rewards frequently played tracks from that era
+3. **Quality Score** (0-1): User rating OR play count proxy for unrated tracks
+
+**Benefits:**
+- Relive your musical past with tracks you loved years ago
+- Automatically surfaces your "favorites from back then"
+- Prevents recently played tracks from appearing (maintains novelty)
+
+**Configuration:**
+- `THROWBACK_LOOKBACK_START`: 730 days (2 years) - start of lookback window
+- `THROWBACK_LOOKBACK_END`: 1825 days (5 years) - end of lookback window
+- `THROWBACK_RECENT_EXCLUSION`: 90 days - exclude tracks played recently
 
 ### Scoring System
 
@@ -133,6 +198,16 @@ All config via environment variables (validated with `envalid` in `config.ts`):
 - Time-based history filtering is preserved (morning playlist still filters 6-11am history)
 - Ensures playlists are ready before you wake up
 
+**Discovery Playlist**:
+- `DISCOVERY_CRON`: Cron schedule for weekly discovery playlist (default: `0 6 * * 1` - Monday 6am)
+- Rediscovers forgotten gems from your entire library
+- Runs weekly to surface tracks you haven't heard in 90+ days
+
+**Throwback Playlist**:
+- `THROWBACK_CRON`: Cron schedule for weekly throwback playlist (default: `0 6 * * 6` - Saturday 6am)
+- Brings back nostalgic tracks from 2-5 years ago
+- Runs weekly to surface tracks you loved in the past but haven't heard recently
+
 **Cache Warming** (Automatic Background Jobs):
 - `CACHE_WARM_CONCURRENCY`: Max concurrent requests for Spotify/Last.fm
   - Artist cache: 2 concurrent requests (very conservative)
@@ -145,7 +220,13 @@ All config via environment variables (validated with `envalid` in `config.ts`):
   - Refreshes cache entries expiring within 7 days
   - Runs before daily playlist generation to ensure fresh metadata
 
-**Other Parameters**:
+**Playlist Behavior**:
+- `EXPLORATION_RATE`: Percentage of playlist for exploration vs exploitation (default: 0.15 = 15%)
+- `EXCLUSION_DAYS`: Days to exclude recently-recommended tracks from new playlists (default: 7)
+- `DISCOVERY_DAYS`: Minimum days since last play for discovery playlist (default: 90)
+- `THROWBACK_LOOKBACK_START`: Start of throwback window in days (default: 730 = 2 years)
+- `THROWBACK_LOOKBACK_END`: End of throwback window in days (default: 1825 = 5 years)
+- `THROWBACK_RECENT_EXCLUSION`: Exclude tracks played in last N days from throwback (default: 90)
 - `HALF_LIFE_DAYS`: Recency decay half-life (default: 7)
 - `MAX_GENRE_SHARE`: Max percentage of playlist from one genre (default: 0.4)
 - `PLAY_COUNT_SATURATION`: Play count normalization cap (default: 25)
@@ -160,6 +241,19 @@ import type { PlaylistWindow } from './windows.js';
 ```
 
 TypeScript compiles `.ts` → `.js`, but imports must reference `.js`.
+
+---
+
+## User Documentation
+
+For user-facing documentation, refer users to:
+- [README.md](README.md) - Landing page with path chooser
+- [docs/docker-guide.md](docs/docker-guide.md) - Docker deployment guide
+- [docs/cli-guide.md](docs/cli-guide.md) - CLI installation and usage
+- [docs/configuration-reference.md](docs/configuration-reference.md) - All env vars
+- [docs/algorithm-explained.md](docs/algorithm-explained.md) - User-friendly algorithm explanation
+- [docs/troubleshooting.md](docs/troubleshooting.md) - Docker/CLI troubleshooting
+- [docs/importing.md](docs/importing.md) - Rating import guide
 
 ## Testing
 
@@ -276,3 +370,150 @@ The genre enrichment service implements **intelligent multi-source merging** to 
 - `cache-warm`: Weekly full warming with multi-source enrichment (Sunday 3am)
 - `cache-refresh`: Daily refresh of expiring entries (2am)
 - Both tracked in `job_runs` with start/finish times and status
+
+## Background Job Queue System
+
+### Architecture (queue/job-queue.ts)
+
+**CLI-First Design Principle:**
+- Core functions (`warmCache`, `createPlaylistRunner`) are pure and reusable
+- CLI calls functions directly (synchronous, immediate execution)
+- Web UI routes jobs through queue (asynchronous, concurrency-limited)
+- **Same business logic, different routing**
+
+### Job Queue Implementation
+
+**In-Process Queue** (`p-queue`)
+- Max concurrency: 2 simultaneous background jobs
+- Prevents resource exhaustion during heavy operations
+- FIFO ordering (can be extended with priorities later)
+
+**Supported Job Types:**
+```typescript
+type JobType =
+  | { type: 'playlist'; window: PlaylistWindow }
+  | { type: 'cache-warm'; concurrency?: number }
+  | { type: 'cache-albums'; concurrency?: number }
+  | { type: 'custom-playlists' }
+```
+
+**Job Lifecycle:**
+1. **Enqueue** - Web route calls `jobQueue.enqueue(job)`, returns job ID immediately
+2. **Queue** - Job waits in queue until a worker slot is available
+3. **Execute** - Worker calls the same core function used by CLI
+4. **Track** - Progress updates via `progressTracker`, persisted to `job_runs` table
+5. **Complete** - Job status updated to `success` or `failed`, worker slot freed
+
+### Cancellation Support
+
+**AbortSignal Integration:**
+- `warmCache()` and `warmAlbumCache()` accept optional `signal?: AbortSignal`
+- Checks `signal?.aborted` at strategic points:
+  - Before fetching Plex data
+  - Before enrichment operations
+  - Before cache write operations
+- Throws error immediately when cancelled
+
+**Cancel Endpoints:**
+- `POST /jobs/:jobId/cancel` - Cancel specific job by ID
+- `POST /history/cancel-running` - Cancel all running jobs
+- Returns immediately; actual cancellation happens asynchronously
+
+**How It Works:**
+```typescript
+const abortController = new AbortController();
+warmCache({
+  concurrency: 2,
+  jobId: 123,
+  signal: abortController.signal  // Passed to core function
+});
+
+// Later, from web UI:
+abortController.abort();  // Function checks signal and throws
+```
+
+### Queue Management
+
+**Stats Endpoint** (`GET /queue/stats`):
+```json
+{
+  "pending": 3,      // Jobs waiting in queue
+  "size": 5,         // Total jobs (pending + active)
+  "active": 2,       // Currently executing
+  "concurrency": 2   // Max simultaneous jobs
+}
+```
+
+**Active Job Tracking:**
+- Queue maintains `Map<jobId, ActiveJob>` for running jobs
+- Each ActiveJob has: `abortController`, `type`, `startedAt`
+- Enables cancellation and status queries
+
+### Progress Tracking Integration
+
+**Real-Time Updates** (utils/progress-tracker.ts):
+- In-memory progress state with EventEmitter
+- SSE streaming to web clients via `/jobs/:jobId/stream`
+- Rate-limited DB persistence (every 10% or 30 seconds)
+- ETA calculation based on current rate
+
+**Source Tracking** (cache warming only):
+```json
+{
+  "sourceCounts": {
+    "plex": 450,
+    "lastfm": 320,
+    "spotify": 50,
+    "cached": 318
+  }
+}
+```
+
+### CLI vs Web Execution Paths
+
+**CLI Path (Direct):**
+```typescript
+// src/cli.ts
+await warmCache({ concurrency: 2, dryRun });
+// Runs immediately, blocks until complete, outputs to stdout
+```
+
+**Web Path (Queued):**
+```typescript
+// src/web/routes/actions.ts
+const jobId = await jobQueue.enqueue({ type: 'cache-warm', concurrency: 2 });
+res.json({ jobId });  // Returns immediately
+// Job runs asynchronously in background
+// Client monitors progress via SSE: /jobs/:jobId/stream
+```
+
+**Scheduler Path (Direct):**
+```typescript
+// src/scheduler.ts
+warmCache({ concurrency: 2, skipCached: true })
+// Scheduled jobs run directly (not queued) since they're time-based
+```
+
+### Benefits of CLI-First + Queue
+
+✅ **Zero duplication** - Business logic written once
+✅ **Consistent behavior** - CLI and web use identical functions
+✅ **Easy testing** - Pure functions, no HTTP/queue mocking needed
+✅ **Performance** - CLI bypasses queue overhead
+✅ **Resource control** - Web UI respects concurrency limits
+✅ **Cancellation** - Works transparently via AbortSignal
+
+### Future Extensions
+
+**Retry Logic** (not yet implemented):
+- Add retry count and exponential backoff to `JobQueue`
+- Configurable max retries per job type
+- Automatic retry on transient failures (network errors, rate limits)
+
+**Job Priorities** (not yet implemented):
+- Manual jobs > Scheduled jobs > Refresh jobs
+- Weighted fair queuing to prevent starvation
+
+**Distributed Queue** (not yet implemented):
+- Replace `p-queue` with Redis/BullMQ for multi-instance deployments
+- Core functions remain unchanged (CLI-first architecture preserved)

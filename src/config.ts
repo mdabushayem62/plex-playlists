@@ -18,9 +18,16 @@ export const APP_ENV = cleanEnv(process.env, {
   // Cache warming settings
   CACHE_WARM_CONCURRENCY: num({ default: 10, desc: 'Max concurrent requests for cache warming (default: 10)' }),
   CACHE_WARM_CRON: str({ default: '0 3 * * 0', desc: 'Schedule for weekly full cache warming (default: Sunday 3am)' }),
-  CACHE_REFRESH_CRON: str({ default: '0 2 * * *', desc: 'Schedule for daily refresh of expiring cache entries (default: 2am)' }),
+  CACHE_REFRESH_CRON: str({ default: '0 * * * *', desc: 'Schedule for hourly micro-refresh of expiring cache entries (default: every hour at :00)' }),
   // Daily time-based playlists
   DAILY_PLAYLISTS_CRON: str({ default: '0 5 * * *', desc: 'Schedule for batch generation of all daily playlists' }),
+  // Discovery playlist (weekly rediscovery of forgotten gems)
+  DISCOVERY_CRON: str({ default: '0 6 * * 1', desc: 'Schedule for weekly discovery playlist (default: Monday 6am)' }),
+  // Throwback playlist (nostalgia from 2-5 years ago)
+  THROWBACK_CRON: str({ default: '0 6 * * 6', desc: 'Schedule for weekly throwback playlist (default: Saturday 6am)' }),
+  THROWBACK_LOOKBACK_START: num({ default: 730, desc: 'Start lookback in days for throwback playlist (default: 730 = 2 years)' }),
+  THROWBACK_LOOKBACK_END: num({ default: 1825, desc: 'End lookback in days for throwback playlist (default: 1825 = 5 years)' }),
+  THROWBACK_RECENT_EXCLUSION: num({ default: 90, desc: 'Exclude tracks played in last N days from throwback (default: 90)' }),
   // Custom user-defined playlists (genre/mood combinations)
   CUSTOM_PLAYLISTS_CRON: str({ default: '0 6 * * 0', desc: 'Schedule for custom playlists generation (default: Sunday 6am)' }),
   // NOTE: Custom playlists are configured via web UI and stored in database
@@ -31,7 +38,10 @@ export const APP_ENV = cleanEnv(process.env, {
   PLAYLIST_TARGET_SIZE: num({ default: 50 }),
   MAX_PER_ARTIST: num({ default: 2 }),
   HISTORY_DAYS: num({ default: 30 }),
-  FALLBACK_LIMIT: num({ default: 200 })
+  FALLBACK_LIMIT: num({ default: 200 }),
+  EXPLORATION_RATE: num({ default: 0.15, desc: 'Exploration rate for discovery (0.0-1.0, default: 0.15 = 15%)' }),
+  EXCLUSION_DAYS: num({ default: 7, desc: 'Days to exclude recently-recommended tracks from new playlists (default: 7)' }),
+  DISCOVERY_DAYS: num({ default: 90, desc: 'Minimum days since last play for discovery playlist (default: 90)' })
 });
 
 export type AppEnv = typeof APP_ENV;

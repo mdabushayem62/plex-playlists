@@ -1,6 +1,6 @@
 {
   "name": "plex-playlist-enhancer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Daily Plex playlist generator with time-sliced history and sonic similarity",
   "type": "module",
@@ -41,6 +41,7 @@
     "lru-cache": "^11.1.0",
     "node-cron": "^3.0.3",
     "p-limit": "^7.1.1",
+    "p-queue": "^9.0.0",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
     "string-similarity-js": "^2.1.4",

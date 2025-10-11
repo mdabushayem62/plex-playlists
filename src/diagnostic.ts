@@ -38,12 +38,9 @@ async function diagnosePlaylist(window: string) {
 
     console.log(`✓ Window Definition:`);
     console.log(`  Type: ${windowDef.type}`);
-    if (windowDef.type === 'genre') {
-      console.log(`  Genre Filter: "${windowDef.genre}"`);
-    }
     console.log();
 
-    const genreFilter = windowDef.type === 'genre' ? windowDef.genre : undefined;
+    const genreFilter = undefined; // Genre filtering handled by custom playlists
     const targetSize = APP_ENV.PLAYLIST_TARGET_SIZE;
 
     // 2. Fetch history

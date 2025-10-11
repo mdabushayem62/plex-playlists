@@ -3,6 +3,8 @@
  * Generates playlists based on user-defined genre/mood combinations
  */
 
+import { format } from 'date-fns';
+
 import { logger } from '../logger.js';
 import { getDb } from '../db/index.js';
 import { customPlaylists } from '../db/schema.js';
@@ -13,12 +15,15 @@ import { buildCandidateTracks } from './candidate-builder.js';
 import { selectPlaylistTracks } from './selector.js';
 import { expandWithSonicSimilarity } from './sonic-expander.js';
 import { createAudioPlaylist, updatePlaylistSummary } from '../plex/playlists.js';
-import { savePlaylist } from '../db/repository.js';
+import { savePlaylist, recordJobStart, recordJobCompletion } from '../db/repository.js';
+import { formatUserError } from '../utils/error-formatter.js';
+import { formatDuration, calculateTotalDuration } from '../utils/format-duration.js';
 
 export interface CustomPlaylistGenerationOptions {
   playlistId: number;
   targetSize?: number;
   historyDays?: number;
+  jobId?: number | null;
 }
 
 /**
@@ -48,19 +53,24 @@ export async function generateCustomPlaylist(
   const moods = JSON.parse(config.moods) as string[];
   const targetSize = options.targetSize || config.targetSize || 50;
 
+  // Use a pseudo-window name for the custom playlist (e.g., "custom-energetic-metal")
+  const windowName = `custom-${config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+  // Use existing job ID (from web UI) or create a new one
+  const jobId = options.jobId ?? await recordJobStart(windowName);
+
   logger.info(
     {
       playlistId,
       name: config.name,
       genres,
       moods,
-      targetSize
+      targetSize,
+      window: windowName,
+      jobId
     },
     'generating custom playlist'
   );
-
-  // Use a pseudo-window name for the custom playlist (e.g., "custom-energetic-metal")
-  const windowName = `custom-${config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
   try {
     // Step 1: Get listening history (all time windows combined for custom playlists)
@@ -123,13 +133,31 @@ export async function generateCustomPlaylist(
 
     // Step 6: Create/update Plex playlist
     const playlistTitle = config.name;
-    const description = config.description ||
-      `${genres.length > 0 ? genres.join(', ') : 'All genres'} • ${moods.length > 0 ? moods.join(', ') : 'All moods'}`;
+    const playlistTracks = selected.map(c => c.track);
+    const totalDuration = calculateTotalDuration(playlistTracks);
+    const formattedDuration = formatDuration(totalDuration);
+    const timestamp = format(new Date(), 'yyyy-MM-dd HH:mm');
+    const trackCount = selected.length;
+
+    // Build context string (genres and moods)
+    const contextParts: string[] = [];
+    if (genres.length > 0) {
+      contextParts.push(`Genres: ${genres.join(', ')}`);
+    }
+    if (moods.length > 0) {
+      contextParts.push(`Moods: ${moods.join(', ')}`);
+    }
+    const context = contextParts.length > 0
+      ? contextParts.join(' • ')
+      : config.description || 'Custom playlist';
+
+    // Format: "50 tracks • 2h 47m • Genres: electronic, ambient • Updated 2025-10-10 17:30"
+    const description = `${trackCount} tracks • ${formattedDuration} • ${context} • Updated ${timestamp}`;
 
     const { ratingKey: plexRatingKey } = await createAudioPlaylist(
       playlistTitle,
       description,
-      selected.map(c => c.track)
+      playlistTracks
     );
 
     // Update playlist summary/description
@@ -148,21 +176,33 @@ export async function generateCustomPlaylist(
       tracks: selected.map((track, index) => ({ ...track, position: index }))
     });
 
+    if (jobId) {
+      await recordJobCompletion(jobId, 'success');
+    }
+
     logger.info(
       {
         playlistId,
         name: config.name,
         trackCount: selected.length,
-        plexRatingKey
+        plexRatingKey,
+        jobId
       },
       'custom playlist generated successfully'
     );
   } catch (error) {
+    const userFriendlyError = formatUserError(error, `generating custom playlist: ${config.name}`);
+
+    if (jobId) {
+      await recordJobCompletion(jobId, 'failed', userFriendlyError);
+    }
+
     logger.error(
       {
         playlistId,
         name: config.name,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        jobId
       },
       'failed to generate custom playlist'
     );

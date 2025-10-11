@@ -88,13 +88,80 @@ export function DashboardPage(props: DashboardPageProps) {
           </div>
         )}
 
+        {/* Playlist Overview */}
+        <section class="card-section">
+          <h3>📋 Playlist Overview</h3>
+
+          {/* Daily Playlists */}
+          <div class="mb-normal">
+            <h4 class="text-muted mb-normal">Daily Playlists</h4>
+            <div class="grid-dense">
+              <div class="row-item flex-between">
+                <span>🌅 Morning</span>
+                <span class="text-sm text-muted">Every day at 5:00am • 6-11am history</span>
+              </div>
+              <div class="row-item flex-between">
+                <span>☀️ Afternoon</span>
+                <span class="text-sm text-muted">Every day at 5:00am • 12-5pm history</span>
+              </div>
+              <div class="row-item flex-between">
+                <span>🌙 Evening</span>
+                <span class="text-sm text-muted">Every day at 5:00am • 6-11pm history</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Special Playlists */}
+          <div class="mb-normal">
+            <h4 class="text-muted mb-normal">Special Playlists</h4>
+            <div class="grid-dense">
+              <div class="row-item flex-between">
+                <span>🔍 Discovery</span>
+                <span class="text-sm text-muted">Monday 6:00am • Forgotten gems (90+ days)</span>
+              </div>
+              <div class="row-item flex-between">
+                <span>⏮️ Throwback</span>
+                <span class="text-sm text-muted">Saturday 6:00am • Nostalgia (2-5 years ago)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Custom Playlists */}
+          {genrePlaylists.length > 0 && (
+            <div>
+              <h4 class="text-muted mb-normal">
+                Custom Playlists ({genrePlaylists.length})
+              </h4>
+              <div class="grid-dense">
+                {genrePlaylists.slice(0, 3).map(p => (
+                  <div class="row-item flex-between">
+                    <a href={`/playlists/${p.id}`} style="text-decoration: none; color: inherit;">🎵 {p.title || p.window}</a>
+                    <span class="text-sm text-muted">{p.trackCount} tracks • {timeAgo(p.generatedAt)}</span>
+                  </div>
+                ))}
+              </div>
+              {genrePlaylists.length > 3 && (
+                <a href="/playlists" class="text-sm" style="display: block; text-align: center; margin-top: var(--spacing-normal);">
+                  View all {genrePlaylists.length} custom playlists →
+                </a>
+              )}
+            </div>
+          )}
+
+          <div class="flex-gap-sm mt-section pt-section border-top">
+            <a href="/config/settings" class="text-sm">⚙️ Configure Schedules</a>
+            <span class="text-muted">|</span>
+            <a href="/playlists" class="text-sm">🎵 Manage Custom Playlists</a>
+          </div>
+        </section>
+
         {/* Stats Overview */}
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--spacing-normal);">
+        <div class="grid-auto-wide">
           <div class="stat-card">
             <h3>{playlists.length}</h3>
             <p>Total Playlists</p>
-            <small style="color: var(--pico-muted-color); font-size: 0.8rem;">
-              {dailyPlaylists.length} daily, {genrePlaylists.length} genre
+            <small class="text-muted text-sm">
+              {dailyPlaylists.length} daily, {genrePlaylists.length} custom
             </small>
           </div>
           <div class="stat-card">
@@ -113,12 +180,12 @@ export function DashboardPage(props: DashboardPageProps) {
 
         {/* Your Playlists */}
         <section>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-normal);">
-            <h3 style="margin: 0;">Your Playlists</h3>
-            <a href="/playlists" style="font-size: 0.875rem;">View All →</a>
+          <div class="flex-between mb-normal">
+            <h3>Your Playlists</h3>
+            <a href="/playlists" class="text-sm">View All →</a>
           </div>
           {playlists.length === 0 ? (
-            <p style="color: var(--pico-muted-color);">
+            <p class="text-muted">
               No playlists generated yet.
               {' '}<a href="/setup">Run setup wizard</a>{' '}to get started.
             </p>
@@ -126,18 +193,18 @@ export function DashboardPage(props: DashboardPageProps) {
             <>
               {/* Daily Playlists */}
               {dailyPlaylists.length > 0 && (
-                <div style="margin-bottom: 1.5rem;">
-                  <h4 style="font-size: 0.875rem; text-transform: uppercase; color: var(--pico-muted-color); margin-bottom: 0.5rem;">
+                <div class="mb-section">
+                  <h4 class="text-sm text-muted mb-normal" style="text-transform: uppercase;">
                     Daily Playlists
                   </h4>
                   <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
                     {dailyPlaylists.map(p => (
                       <a href={`/playlists/${p.id}`} style="text-decoration: none; color: inherit;">
-                        <article style="margin: 0; padding: 1rem; background: var(--pico-card-background-color); border-radius: 0.5rem;">
-                          <div style="margin-bottom: 0.5rem;">
+                        <article>
+                          <div class="mb-normal">
                             <strong>{p.title || p.window}</strong>
                           </div>
-                          <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">
+                          <p class="text-muted text-sm">
                             {p.trackCount} tracks • {timeAgo(p.generatedAt)}
                           </p>
                         </article>
@@ -147,26 +214,26 @@ export function DashboardPage(props: DashboardPageProps) {
                 </div>
               )}
 
-              {/* Genre Playlists */}
+              {/* Custom & Special Playlists */}
               {genrePlaylists.length > 0 && (
                 <div>
-                  <h4 style="font-size: 0.875rem; text-transform: uppercase; color: var(--pico-muted-color); margin-bottom: 0.5rem;">
-                    Genre Playlists ({genrePlaylists.length})
+                  <h4 class="text-sm text-muted mb-normal" style="text-transform: uppercase;">
+                    Custom & Special Playlists ({genrePlaylists.length})
                   </h4>
-                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+                  <div class="grid-dense" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
                     {genrePlaylists.slice(0, 8).map(p => (
-                      <a href={`/playlists/${p.id}`} style="text-decoration: none; color: inherit; font-size: 0.875rem;">
-                        <div style="padding: 0.5rem; background: var(--pico-background-color); border-radius: 0.25rem;">
+                      <a href={`/playlists/${p.id}`} class="text-sm" style="text-decoration: none; color: inherit;">
+                        <div class="row-item">
                           {p.title || p.window}
-                          <span style="color: var(--pico-muted-color);"> • {p.trackCount}</span>
+                          <span class="text-muted"> • {p.trackCount}</span>
                         </div>
                       </a>
                     ))}
                   </div>
                   {genrePlaylists.length > 8 && (
-                    <p style="margin-top: 0.5rem; text-align: center;">
-                      <a href="/playlists" style="font-size: 0.875rem;">
-                        View all {genrePlaylists.length} genre playlists →
+                    <p class="mt-section" style="text-align: center;">
+                      <a href="/playlists" class="text-sm">
+                        View all {genrePlaylists.length} playlists →
                       </a>
                     </p>
                   )}
@@ -178,12 +245,12 @@ export function DashboardPage(props: DashboardPageProps) {
 
         {/* Recent Activity */}
         <section>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-normal);">
-            <h3 style="margin: 0;">Recent Activity</h3>
-            <a href="/actions/history" style="font-size: 0.875rem;">View Full History →</a>
+          <div class="flex-between mb-normal">
+            <h3>Recent Activity</h3>
+            <a href="/actions/history" class="text-sm">View Full History →</a>
           </div>
           {jobs.length === 0 ? (
-            <p style="color: var(--pico-muted-color);">No job history yet.</p>
+            <p class="text-muted">No job history yet.</p>
           ) : (
             <>
               {/* Most Recent Error (if exists) */}
@@ -250,7 +317,7 @@ export function DashboardPage(props: DashboardPageProps) {
         {/* Cache Stats */}
         <section>
           <h3>Genre Cache</h3>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--spacing-normal);">
+          <div class="grid-auto">
             {Object.entries(cacheStats.bySource).map(([source, count]) => (
               <div class="stat-card">
                 <h3>{count}</h3>
@@ -263,7 +330,7 @@ export function DashboardPage(props: DashboardPageProps) {
         {/* Quick Actions */}
         <section>
           <h3>Quick Actions</h3>
-          <div style="display: flex; gap: var(--spacing-normal); flex-wrap: wrap;">
+          <div class="flex-gap" style="display: flex; flex-wrap: wrap;">
             <a href="/playlists" role="button" style="margin: 0;">View All Playlists</a>
             <a href="/actions" role="button" class="secondary" style="margin: 0;">Generate Playlists</a>
             <a href="/actions/cache" role="button" class="secondary" style="margin: 0;">Manage Cache</a>

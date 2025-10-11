@@ -7,8 +7,9 @@ import { getSpotifyClient } from './metadata/providers/spotify.js';
 import { logger } from './logger.js';
 import { getEffectiveConfig } from './db/settings-service.js';
 import { getPlexServer } from './plex/client.js';
+import { getExpirationTimestamp, CACHE_REFRESH_CONFIG } from './cache/cache-utils.js';
 
-const CACHE_TTL_DAYS = 90;
+const CACHE_TTL_DAYS = CACHE_REFRESH_CONFIG.BASE_TTL_DAYS;
 
 /**
  * Enriched genre service with caching
@@ -154,7 +155,7 @@ export class GenreEnrichmentService {
   ): Promise<void> {
     const db = getDb();
     const normalizedName = artistName.toLowerCase();
-    const expiresAt = new Date(Date.now() + CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(getExpirationTimestamp(CACHE_TTL_DAYS, CACHE_REFRESH_CONFIG.TTL_JITTER_PERCENT));
 
     try {
       await db
@@ -509,7 +510,7 @@ export class GenreEnrichmentService {
     const db = getDb();
     const normalizedArtist = artistName.toLowerCase();
     const normalizedAlbum = albumName.toLowerCase();
-    const expiresAt = new Date(Date.now() + CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(getExpirationTimestamp(CACHE_TTL_DAYS, CACHE_REFRESH_CONFIG.TTL_JITTER_PERCENT));
 
     try {
       await db

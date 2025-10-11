@@ -7,12 +7,15 @@ import { fetchHistoryForWindow } from './history/history-service.js';
 import { logger } from './logger.js';
 import { fetchFallbackCandidates } from './playlist/fallback.js';
 import { buildCandidateTracks, type CandidateTrack } from './playlist/candidate-builder.js';
+import { fetchDiscoveryTracks } from './playlist/discovery.js';
+import { fetchThrowbackTracks } from './playlist/throwback.js';
 import { selectPlaylistTracks } from './playlist/selector.js';
 import { expandWithSonicSimilarity } from './playlist/sonic-expander.js';
-import { createAudioPlaylist, deletePlaylist, updatePlaylistSummary } from './plex/playlists.js';
+import { createAudioPlaylist, deletePlaylist } from './plex/playlists.js';
 import type { PlaylistWindow } from './windows.js';
 import { getWindowDefinition, windowLabel as formatWindowLabel } from './windows.js';
 import { formatUserError } from './utils/error-formatter.js';
+import { formatDuration, calculateTotalDuration } from './utils/format-duration.js';
 
 const mergeCandidates = (primary: CandidateTrack[], fallback: CandidateTrack[]): CandidateTrack[] => {
   const map = new Map<string, CandidateTrack>();
@@ -45,94 +48,114 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       if (!windowDef) {
         throw new Error(`Unknown window: ${window}`);
       }
-      const genreFilter = windowDef.type === 'genre' ? windowDef.genre : undefined;
+      const genreFilter = undefined; // Genre filtering handled by custom playlists
 
       logger.info(
         { window, targetSize, maxPerArtist, fallbackLimit, genreFilter },
         'starting playlist run'
       );
 
-      const historyEntries = await fetchHistoryForWindow(window);
-      const aggregatedHistory = aggregateHistory(historyEntries);
-      logger.info(
-        { window, historyEntries: historyEntries.length, uniqueTracks: aggregatedHistory.length },
-        'history retrieved and aggregated'
-      );
+      let candidates: CandidateTrack[];
+      let historyCandidates: number;
 
-      let candidates = await buildCandidateTracks(aggregatedHistory, { genreFilter });
-      const historyCandidates = candidates.length;
+      // Discovery playlist uses a different strategy: find long-forgotten or never-played tracks
+      if (window === 'discovery') {
+        logger.info(
+          { window, targetSize, minDaysSincePlay: APP_ENV.DISCOVERY_DAYS },
+          'generating discovery playlist from library-wide scan'
+        );
+
+        candidates = await fetchDiscoveryTracks(targetSize, APP_ENV.DISCOVERY_DAYS);
+        historyCandidates = 0; // Discovery doesn't use listening history
+
+        logger.info(
+          { window, discoveryCandidates: candidates.length, targetSize },
+          'discovery candidates fetched and scored'
+        );
+      } else if (window === 'throwback') {
+        // Throwback playlist: nostalgic tracks from 2-5 years ago
+        logger.info(
+          {
+            window,
+            targetSize,
+            lookbackWindow: {
+              start: APP_ENV.THROWBACK_LOOKBACK_START,
+              end: APP_ENV.THROWBACK_LOOKBACK_END
+            },
+            recentExclusion: APP_ENV.THROWBACK_RECENT_EXCLUSION
+          },
+          'generating throwback playlist from historical listening'
+        );
+
+        candidates = await fetchThrowbackTracks(
+          targetSize,
+          APP_ENV.THROWBACK_LOOKBACK_START,
+          APP_ENV.THROWBACK_LOOKBACK_END,
+          APP_ENV.THROWBACK_RECENT_EXCLUSION
+        );
+        historyCandidates = 0; // Throwback uses historical window, not recent history
+
+        logger.info(
+          { window, throwbackCandidates: candidates.length, targetSize },
+          'throwback candidates fetched and scored'
+        );
+      } else {
+        // Standard time-based or genre playlists use listening history
+        const historyEntries = await fetchHistoryForWindow(window);
+        const aggregatedHistory = aggregateHistory(historyEntries);
+        logger.info(
+          { window, historyEntries: historyEntries.length, uniqueTracks: aggregatedHistory.length },
+          'history retrieved and aggregated'
+        );
+
+        candidates = await buildCandidateTracks(aggregatedHistory, { genreFilter });
+        historyCandidates = candidates.length;
+      }
 
       // For genre playlists with no listening history, use a different strategy:
       // 1. Get high-quality tracks from entire library (no genre filter)
       // 2. Use sonic similarity to find similar tracks
       // 3. Filter sonic results to the target genre
-      const useGenreSonicExpansion = genreFilter && historyCandidates === 0;
+      // Note: Genre filtering now handled by custom playlists, so this path is disabled
+      const useGenreSonicExpansion = false;
 
       if (candidates.length < targetSize && !useGenreSonicExpansion) {
         logger.info({ window, current: candidates.length, target: targetSize }, 'fetching fallback candidates');
         const fallbackCandidates = await fetchFallbackCandidates(fallbackLimit, { genreFilter });
         logger.info({ window, fallbackCount: fallbackCandidates.length }, 'fallback candidates fetched');
         candidates = mergeCandidates(candidates, fallbackCandidates);
-      } else if (useGenreSonicExpansion) {
-        // Genre playlist with no history - use sonic expansion from high-quality tracks of ANY genre
-        logger.info(
-          { window, genreFilter, targetSize },
-          'no genre history found - using sonic expansion from high-quality tracks across all genres'
-        );
-
-        // Get high-quality seed tracks from entire library (no genre filter)
-        const seedCandidates = await fetchFallbackCandidates(50, {}); // No genre filter for seeds
-        logger.info(
-          { window, seedCount: seedCandidates.length },
-          'fetched high-quality seed tracks from entire library'
-        );
-
-        if (seedCandidates.length > 0) {
-          // Use sonic similarity to find tracks similar to high-quality seeds
-          const sonicCandidates = await expandWithSonicSimilarity({
-            seeds: seedCandidates,
-            exclude: new Set(), // No exclusions for initial expansion
-            needed: targetSize * 3, // Get extra to ensure enough after genre filtering
-            maxSeeds: 20, // Use more seeds for better coverage
-            perSeed: 25 // Get more results per seed
-          });
-
-          logger.info(
-            { window, sonicCount: sonicCandidates.length },
-            'fetched sonic similarity candidates'
-          );
-
-          // NOW filter to the target genre
-          const genreFilteredCandidates = [];
-          for (const candidate of sonicCandidates) {
-            const candidateGenre = candidate.genre?.toLowerCase() || '';
-            const filterGenre = genreFilter.toLowerCase();
-            if (candidateGenre.includes(filterGenre)) {
-              genreFilteredCandidates.push(candidate);
-            }
-          }
-
-          logger.info(
-            { window, beforeFilter: sonicCandidates.length, afterFilter: genreFilteredCandidates.length },
-            'filtered sonic candidates by genre'
-          );
-
-          candidates = mergeCandidates(candidates, genreFilteredCandidates);
-        }
       }
+      // Note: Genre-based sonic expansion (useGenreSonicExpansion) disabled - handled by custom playlists
 
       logger.info(
         { window, totalCandidates: candidates.length, fromHistory: historyCandidates },
         'candidate pool ready'
       );
 
-      const existingKeys = await fetchExistingTrackRatingKeys(window);
-      logger.debug({ window, crossPlaylistExclusions: existingKeys.size }, 'applying cross-playlist deduplication');
+      // Fetch cross-playlist exclusions (tracks from other playlists in last N days)
+      const crossPlaylistKeys = await fetchExistingTrackRatingKeys(window);
+
+      // Optionally fetch same-window exclusions (tracks from this playlist in last N days)
+      // This prevents repetition within the same playlist type
+      // const sameWindowKeys = await fetchRecentlyRecommendedForWindow(window);
+      // const excludeKeys = new Set([...crossPlaylistKeys, ...sameWindowKeys]);
+
+      // For now, just use cross-playlist exclusions
+      const excludeKeys = crossPlaylistKeys;
+
+      logger.debug(
+        {
+          window,
+          crossPlaylistExclusions: crossPlaylistKeys.size,
+          exclusionDays: APP_ENV.EXCLUSION_DAYS
+        },
+        'applying time-based cross-playlist deduplication'
+      );
 
       let { selected } = selectPlaylistTracks(candidates, {
         targetCount: targetSize,
         maxPerArtist,
-        excludeRatingKeys: existingKeys,
+        excludeRatingKeys: excludeKeys,
         window
       });
 
@@ -144,7 +167,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       let sonicExpansionUsed = false;
 
       if (selected.length < targetSize) {
-        const excludeWithSelected = new Set([...existingKeys, ...selected.map(item => item.ratingKey)]);
+        const excludeWithSelected = new Set([...excludeKeys, ...selected.map(item => item.ratingKey)]);
         const seeds = selected.length > 0 ? selected : candidates.slice(0, targetSize);
         const needed = targetSize - selected.length;
         logger.info({ window, current: selected.length, needed, seeds: seeds.length }, 'expanding with sonic similarity');
@@ -162,7 +185,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
           ({ selected } = selectPlaylistTracks(candidates, {
             targetCount: targetSize,
             maxPerArtist,
-            excludeRatingKeys: existingKeys,
+            excludeRatingKeys: excludeKeys,
             window
           }));
         }
@@ -186,27 +209,33 @@ export class DailyPlaylistRunner implements PlaylistRunner {
 
       // Add emoji prefixes for sorting
       const getEmojiPrefix = (window: PlaylistWindow): string => {
-        if (windowDef.type === 'genre') {
-          return '🎵';
-        }
         switch (window) {
           case 'morning': return '🌅';
           case 'afternoon': return '☀️';
           case 'evening': return '🌙';
+          case 'discovery': return '🔍';
+          case 'throwback': return '⏪';
           default: return '🎵';
         }
       };
 
       const windowLabelText = formatWindowLabel(window);
       const emoji = getEmojiPrefix(window);
-      const title = windowDef.type === 'genre'
+      const title = windowDef.type === 'special'
         ? `${emoji} Weekly ${windowLabelText}`
         : `${emoji} Daily ${window.charAt(0).toUpperCase()}${window.slice(1)} Mix`;
-      const summary = `${windowLabelText} • Generated ${format(new Date(), 'yyyy-MM-dd HH:mm')}`;
 
       const playlistTracks = selected.map(item => item.track);
+      const totalDuration = calculateTotalDuration(playlistTracks);
+      const formattedDuration = formatDuration(totalDuration);
+      const timestamp = format(new Date(), 'yyyy-MM-dd HH:mm');
+      const trackCount = selected.length;
+
+      // Format: "50 tracks • 3h 24m • Morning 06:00-11:59 • Updated 2025-10-10 17:30"
+      const summary = `${trackCount} tracks • ${formattedDuration} • ${windowLabelText} • Updated ${timestamp}`;
+
       const { ratingKey } = await createAudioPlaylist(title, summary, playlistTracks);
-      await updatePlaylistSummary(ratingKey, { title, summary });
+      // Note: Summary is already set during createAudioPlaylist(), no need for redundant update
 
       await savePlaylist({
         window,
@@ -231,7 +260,8 @@ export class DailyPlaylistRunner implements PlaylistRunner {
           totalCandidates: candidates.length,
           initialSelection,
           sonicExpansionUsed,
-          crossPlaylistExclusions: existingKeys.size
+          crossPlaylistExclusions: excludeKeys.size,
+          exclusionDays: APP_ENV.EXCLUSION_DAYS
         },
         'playlist run complete'
       );

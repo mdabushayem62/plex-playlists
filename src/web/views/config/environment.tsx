@@ -101,8 +101,8 @@ export function EnvironmentPage(props: EnvironmentPageProps): JSX.Element {
           <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
             Optional: Add API keys for enhanced genre metadata from Last.fm and Spotify.
             See setup guides:
-            <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/lastfm-setup.md" target="_blank">Last.fm</a> •
-            <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/spotify-setup.md" target="_blank">Spotify</a>
+            <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/lastfm-setup.md" target="_blank">Last.fm</a> •
+            <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/spotify-setup.md" target="_blank">Spotify</a>
           </p>
 
           {Object.entries(apiSettings).map(([key, metadata]) => (

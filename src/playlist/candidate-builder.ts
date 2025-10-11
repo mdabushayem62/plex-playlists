@@ -4,6 +4,9 @@ import type { AggregatedHistory } from '../history/aggregate.js';
 import { fallbackScore, recencyWeight } from '../scoring/weights.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
 import { getEnrichedAlbumGenres, getEnrichedAlbumMoods } from '../genre-enrichment.js';
+import { getDb } from '../db/index.js';
+import { genreCache } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 export interface CandidateTrack {
   ratingKey: string;
@@ -214,6 +217,18 @@ export const buildCandidateTracks = async (
 
   // Sort descending by final score for downstream selectors
   candidates.sort((a, b) => b.finalScore - a.finalScore);
+
+  // Track cache usage for all artists in this playlist generation
+  // This enables usage-based refresh prioritization (Phase 3)
+  if (candidates.length > 0) {
+    const uniqueArtists = [...new Set(candidates.map(c => c.artist))];
+    // Fire-and-forget to avoid blocking playlist generation
+    updateCacheUsage(uniqueArtists).catch(err => {
+      // Silently fail - usage tracking is non-critical
+      console.warn('Failed to update cache usage:', err);
+    });
+  }
+
   return candidates;
 };
 
@@ -221,3 +236,29 @@ export const candidateFromTrack = async (
   track: Track,
   history: { playCount: number; lastPlayedAt: Date | null }
 ): Promise<CandidateTrack> => buildCandidate(track, history);
+
+/**
+ * Update last_used_at timestamp for cache entries (async, non-blocking)
+ * Tracks which artists are actively used in playlists for usage-based prioritization
+ */
+async function updateCacheUsage(artistNames: string[]): Promise<void> {
+  if (artistNames.length === 0) return;
+
+  const db = getDb();
+  const now = new Date();
+  const normalizedNames = artistNames.map(n => n.toLowerCase());
+
+  // Batch update all artists (fire-and-forget pattern)
+  // We don't await these to avoid blocking playlist generation
+  const updates = normalizedNames.map(name =>
+    db
+      .update(genreCache)
+      .set({ lastUsedAt: now })
+      .where(eq(genreCache.artistName, name))
+      .catch(() => {
+        // Silently ignore errors - usage tracking is non-critical
+      })
+  );
+
+  await Promise.allSettled(updates);
+}

@@ -207,6 +207,130 @@ async function deletePlaylist(id, name) {
   }
 }
 
+/**
+ * Load playlist recommendations
+ */
+async function loadRecommendations() {
+  const section = document.getElementById('recommendations-section');
+  const loading = document.getElementById('recommendations-loading');
+  const content = document.getElementById('recommendations-content');
+  const error = document.getElementById('recommendations-error');
+  const btn = document.getElementById('show-recommendations-btn');
+
+  // Show section and loading state
+  section.style.display = 'block';
+  loading.style.display = 'block';
+  content.style.display = 'none';
+  error.style.display = 'none';
+  btn.disabled = true;
+
+  // Scroll to section
+  section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const response = await fetch('/playlists/recommendations');
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error('Failed to load recommendations');
+    }
+
+    const recommendations = result.recommendations;
+
+    if (recommendations.length === 0) {
+      content.innerHTML = `
+        <div class="playlist-builder-card">
+          <p style="color: var(--pico-muted-color); margin: 0;">
+            No recommendations available yet. Make sure you have:
+            <ul style="margin: 0.5rem 0 0 1.5rem;">
+              <li>Listened to some music</li>
+              <li>Rated some tracks</li>
+              <li>Run cache warming to populate genre data</li>
+            </ul>
+          </p>
+        </div>
+      `;
+    } else {
+      // Render recommendations
+      content.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
+          ${recommendations.map(rec => `
+            <div class="recommendation-card">
+              <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
+                <h4 style="margin: 0; flex: 1;">${rec.name}</h4>
+                <span class="category-badge category-${rec.category}">${rec.category}</span>
+              </div>
+
+              <p style="margin: 0 0 0.75rem 0; font-size: 0.875rem; color: var(--pico-muted-color);">
+                ${rec.description}
+              </p>
+
+              ${rec.genres.length > 0 || rec.moods.length > 0 ? `
+                <div style="display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.75rem;">
+                  ${rec.genres.map(g => `<span style="padding: 0.25rem 0.5rem; background: var(--pico-primary); color: var(--pico-primary-inverse); border-radius: 0.25rem; font-size: 0.75rem;">🎵 ${g}</span>`).join('')}
+                  ${rec.moods.map(m => `<span style="padding: 0.25rem 0.5rem; background: var(--pico-ins-color); color: white; border-radius: 0.25rem; font-size: 0.75rem;">✨ ${m}</span>`).join('')}
+                </div>
+              ` : ''}
+
+              <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--pico-muted-border-color);">
+                <small style="color: var(--pico-muted-color);">${rec.reason}</small>
+                <button
+                  onclick='createFromRecommendation(${JSON.stringify(rec).replace(/'/g, "\\'").replace(/"/g, "&quot;")})'
+                  class="secondary"
+                  style="font-size: 0.875rem; padding: 0.375rem 0.75rem; margin: 0; white-space: nowrap;"
+                >
+                  ➕ Create
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    loading.style.display = 'none';
+    content.style.display = 'block';
+  } catch (err) {
+    console.error('Failed to load recommendations:', err);
+    loading.style.display = 'none';
+    error.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Create a playlist from a recommendation
+ */
+async function createFromRecommendation(recommendation) {
+  const data = {
+    name: recommendation.name,
+    genres: recommendation.genres,
+    moods: recommendation.moods,
+    targetSize: recommendation.targetSize,
+    description: recommendation.description
+  };
+
+  try {
+    const response = await fetch('/playlists/builder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      showToast(`Created "${recommendation.name}" playlist!`, 'success');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      throw new Error(result.error || 'Failed to create playlist');
+    }
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
 // Expose functions globally
 window.toggleBuilder = toggleBuilder;
 window.toggleTag = toggleTag;
@@ -214,3 +338,5 @@ window.createPlaylist = createPlaylist;
 window.togglePlaylist = togglePlaylist;
 window.generatePlaylist = generatePlaylist;
 window.deletePlaylist = deletePlaylist;
+window.loadRecommendations = loadRecommendations;
+window.createFromRecommendation = createFromRecommendation;

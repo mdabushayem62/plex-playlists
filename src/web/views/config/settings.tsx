@@ -113,8 +113,8 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
           <div>
             <p style="color: var(--pico-muted-color); font-size: 0.875rem; margin-bottom: 0.75rem;">
               Optional: Add API keys for enhanced genre metadata.
-              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/lastfm-setup.md" target="_blank">Last.fm guide</a> •
-              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/spotify-setup.md" target="_blank">Spotify guide</a>
+              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/lastfm-setup.md" target="_blank">Last.fm guide</a> •
+              <a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/spotify-setup.md" target="_blank">Spotify guide</a>
             </p>
 
             {Object.entries(apiSettings).map(([key, metadata]) => {
@@ -264,17 +264,17 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
           </div>
         </details>
 
-        {/* Genre Playlists Link */}
+        {/* Custom Playlists Link */}
         <div style="background: var(--pico-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <strong>Genre Playlists Configuration</strong>
+              <strong>Custom Playlists</strong>
               <p style="margin: 0.25rem 0 0 0; font-size: 0.8125rem; color: var(--pico-muted-color);">
-                Manage genre playlist JSON config separately
+                Create genre/mood combination playlists
               </p>
             </div>
-            <a href="/config/playlists" class="secondary" style="text-decoration: none; margin: 0; white-space: nowrap;">
-              🎵 Edit Playlists
+            <a href="/playlists" class="secondary" style="text-decoration: none; margin: 0; white-space: nowrap;">
+              🎵 Manage Playlists
             </a>
           </div>
         </div>

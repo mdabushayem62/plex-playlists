@@ -3,6 +3,7 @@ import { logger } from './logger.js';
 import type { PlaylistWindow } from './windows.js';
 import { warmCache, refreshExpiringCache } from './cache/cache-cli.js';
 import { APP_ENV } from './config.js';
+import { CACHE_REFRESH_CONFIG } from './cache/cache-utils.js';
 
 export type WindowJobRunner = (window: PlaylistWindow) => Promise<void>;
 export type BatchJobRunner = () => Promise<void>;
@@ -45,13 +46,14 @@ class Scheduler {
         });
         this.tasks.push(task);
       }
-      // Cache refresh job
+      // Cache refresh job (hourly micro-refreshes with batch limit)
       else if (window === 'cache-refresh') {
         const task = cron.schedule(expression, () => {
-          logger.info('starting scheduled cache refresh');
+          logger.info('starting scheduled cache refresh (hourly micro-batch)');
           refreshExpiringCache({
-            daysAhead: 7,
-            concurrency: APP_ENV.CACHE_WARM_CONCURRENCY
+            daysAhead: CACHE_REFRESH_CONFIG.REFRESH_LOOKAHEAD_DAYS,
+            concurrency: APP_ENV.CACHE_WARM_CONCURRENCY,
+            batchLimit: CACHE_REFRESH_CONFIG.HOURLY_REFRESH_LIMIT
           })
             .then(result => logger.info({ ...result }, 'cache refresh complete'))
             .catch(error => logger.error({ err: error }, 'cache refresh failed'));

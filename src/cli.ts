@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { config as dotenvConfig } from 'dotenv';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { getGenreWindows, TIME_WINDOWS, type PlaylistWindow } from './windows.js';
+import { TIME_WINDOWS, SPECIAL_WINDOWS, type PlaylistWindow } from './windows.js';
 import { createApp } from './index.js';
 import { logger } from './logger.js';
 import { importRatingsFromCSVs } from './import/importer-fast.js';
@@ -25,7 +25,10 @@ const usage = `Usage:
   plex-playlists start                         Start the scheduler
   plex-playlists run <window>                  Run a single playlist window
     Time windows: morning, afternoon, evening
-    Genre windows: (loaded from playlists.config.json + auto-discovery)
+    Special windows:
+      - discovery: Weekly rediscovery of forgotten gems
+      - throwback: Nostalgic tracks from 2-5 years ago
+    Custom/cache windows: custom-playlists, cache-warm, cache-refresh
   plex-playlists run-all                       Run all three daily playlists sequentially
   plex-playlists history diagnose              Test Plex history tracking and provide recommendations
   plex-playlists cache warm [--dry-run] [--concurrency=N]
@@ -74,16 +77,19 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Validate window - check if it's a time window or genre window
+    // Validate window - check if it's a time window, special window, cache job, or custom playlist
     const isTimeWindow = (TIME_WINDOWS as readonly string[]).includes(windowArg);
-    const genreWindows = await getGenreWindows();
-    const isGenreWindow = genreWindows.some(g => g.window === windowArg);
+    const isSpecialWindow = (SPECIAL_WINDOWS as readonly string[]).includes(windowArg);
+    const isCacheWindow = ['cache-warm', 'cache-refresh'].includes(windowArg);
+    const isCustomWindow = windowArg === 'custom-playlists' || windowArg.startsWith('custom-');
 
-    if (!isTimeWindow && !isGenreWindow) {
+    if (!isTimeWindow && !isSpecialWindow && !isCacheWindow && !isCustomWindow) {
       console.error(`Error: Unknown window '${windowArg}'`);
       console.error(`\nAvailable windows:`);
       console.error(`  Time: ${TIME_WINDOWS.join(', ')}`);
-      console.error(`  Genre: ${genreWindows.map(g => g.window).join(', ')}`);
+      console.error(`  Special: ${SPECIAL_WINDOWS.join(', ')}, custom-playlists`);
+      console.error(`  Cache: cache-warm, cache-refresh`);
+      console.error(`  Custom: Any 'custom-*' playlist window from database`);
       process.exitCode = 1;
       return;
     }

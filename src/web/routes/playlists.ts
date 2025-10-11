@@ -10,6 +10,7 @@ import { playlists, playlistTracks, jobRuns, setupState, customPlaylists } from 
 import { desc, eq } from 'drizzle-orm';
 import { TIME_WINDOWS } from '../../windows.js';
 import { getGenreSummary, getMoodSummary } from '../../config/genre-discovery.js';
+import { getPlaylistRecommendations } from '../../playlist/recommendations.js';
 
 export const playlistsRouter = Router();
 
@@ -34,8 +35,9 @@ playlistsRouter.get('/', async (req, res) => {
       .from(playlists)
       .orderBy(desc(playlists.generatedAt));
 
-    // Get genre windows for categorization
+    // Get windows for categorization
     const timeWindows = TIME_WINDOWS as readonly string[];
+    const specialWindows = ['discovery', 'throwback'];
 
     // Get most recent job run for each window
     const jobsByWindow = new Map<string, typeof jobRuns.$inferSelect>();
@@ -50,19 +52,51 @@ playlistsRouter.get('/', async (req, res) => {
       }
     }
 
+    // Categorize playlists
+    const categorizePlaylist = (window: string) => {
+      if (timeWindows.includes(window)) return 'daily';
+      if (specialWindows.includes(window)) return 'special';
+      return 'custom';
+    };
+
     // Enrich playlists with job status
     const enrichedPlaylists = allPlaylists.map(playlist => ({
       ...playlist,
       lastJob: jobsByWindow.get(playlist.window),
-      category: timeWindows.includes(playlist.window) ? 'daily' : 'genre'
+      category: categorizePlaylist(playlist.window)
     }));
+
+    // Check which special playlists exist
+    const existingSpecialWindows = new Set(
+      enrichedPlaylists
+        .filter(p => p.category === 'special')
+        .map(p => p.window)
+    );
+
+    // Create list of special playlists to show (existing + missing)
+    const specialPlaylistDefs = [
+      {
+        window: 'discovery',
+        title: '🔍 Discovery',
+        description: 'Forgotten gems from your library (90+ days unplayed)',
+        exists: existingSpecialWindows.has('discovery')
+      },
+      {
+        window: 'throwback',
+        title: '⏪ Throwback',
+        description: 'Nostalgic favorites from 2-5 years ago',
+        exists: existingSpecialWindows.has('throwback')
+      }
+    ];
 
     // Render TSX component
     const { PlaylistsIndexPage } = await import(getViewPath('playlists/index.tsx'));
     const html = PlaylistsIndexPage({
       playlists: enrichedPlaylists,
       dailyPlaylists: enrichedPlaylists.filter(p => p.category === 'daily'),
-      genrePlaylists: enrichedPlaylists.filter(p => p.category === 'genre'),
+      specialPlaylists: enrichedPlaylists.filter(p => p.category === 'special'),
+      customPlaylists: enrichedPlaylists.filter(p => p.category === 'custom'),
+      specialPlaylistDefs,
       totalTracks: allPlaylists.reduce((sum, p) => sum + p.trackCount, 0),
       setupComplete,
       page: 'playlists'
@@ -188,6 +222,19 @@ playlistsRouter.post('/builder', async (req, res) => {
   } catch (error) {
     console.error('Create playlist error:', error);
     res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+/**
+ * Get playlist recommendations based on user's library
+ */
+playlistsRouter.get('/recommendations', async (req, res) => {
+  try {
+    const recommendations = await getPlaylistRecommendations();
+    res.json({ success: true, recommendations });
+  } catch (error) {
+    console.error('Get recommendations error:', error);
+    res.status(500).json({ error: 'Failed to generate recommendations' });
   }
 });
 

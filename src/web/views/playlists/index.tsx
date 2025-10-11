@@ -26,10 +26,19 @@ interface JobRun {
   error: string | null;
 }
 
+interface SpecialPlaylistDef {
+  window: string;
+  title: string;
+  description: string;
+  exists: boolean;
+}
+
 export interface PlaylistsIndexPageProps {
   playlists: Playlist[];
   dailyPlaylists: Playlist[];
-  genrePlaylists: Playlist[];
+  specialPlaylists: Playlist[];
+  customPlaylists: Playlist[];
+  specialPlaylistDefs: SpecialPlaylistDef[];
   totalTracks: number;
   setupComplete: boolean;
   page: string;
@@ -57,7 +66,9 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
   const {
     playlists,
     dailyPlaylists,
-    genrePlaylists,
+    specialPlaylists,
+    customPlaylists,
+    specialPlaylistDefs,
     totalTracks,
     setupComplete,
     page
@@ -102,18 +113,22 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
             </div>
 
             {/* Overview Stats */}
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
               <div class="stat-card">
                 <h3>{playlists.length}</h3>
                 <p>Total Playlists</p>
               </div>
               <div class="stat-card">
                 <h3>{dailyPlaylists.length}</h3>
-                <p>Daily Playlists</p>
+                <p>Daily</p>
               </div>
               <div class="stat-card">
-                <h3>{genrePlaylists.length}</h3>
-                <p>Genre Playlists</p>
+                <h3>{specialPlaylists.length}/{specialPlaylistDefs.length}</h3>
+                <p>Special</p>
+              </div>
+              <div class="stat-card">
+                <h3>{customPlaylists.length}</h3>
+                <p>Custom</p>
               </div>
               <div class="stat-card">
                 <h3>{totalTracks}</h3>
@@ -172,12 +187,95 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
               </section>
             )}
 
-            {/* Genre Playlists Section */}
-            {genrePlaylists.length > 0 && (
+            {/* Special Playlists Section */}
+            <section style="margin-bottom: 3rem;">
+              <h3>Special Playlists</h3>
+              <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
+                Discovery and throwback playlists that uncover hidden gems and nostalgic favorites.
+              </p>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
+                {specialPlaylistDefs.map(def => {
+                  const playlist = specialPlaylists.find(p => p.window === def.window);
+
+                  return (
+                    <article style="margin-bottom: 0;">
+                      <header>
+                        <h4 style="margin: 0;">
+                          {playlist ? (
+                            <a href={`/playlists/${playlist.id}`} style="text-decoration: none; color: inherit;">
+                              {def.title}
+                            </a>
+                          ) : (
+                            <span>{def.title}</span>
+                          )}
+                        </h4>
+                      </header>
+                      <div style="padding: 0.5rem 0;">
+                        <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
+                          {def.description}
+                        </p>
+                        {playlist ? (
+                          <>
+                            <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
+                              <strong>{playlist.trackCount}</strong> tracks
+                            </p>
+                            <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
+                              Updated {timeAgo(playlist.generatedAt)}
+                            </p>
+                            {playlist.lastJob && playlist.lastJob.status === 'failed' && (
+                              <p style="margin: 0.5rem 0 0 0; color: var(--pico-del-color); font-size: 0.875rem;">
+                                ⚠️ Last generation failed
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p style="margin: 0.5rem 0 0 0; color: var(--pico-muted-color); font-size: 0.875rem; font-style: italic;">
+                            Not generated yet
+                          </p>
+                        )}
+                      </div>
+                      <footer style="display: flex; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--pico-muted-border-color);">
+                        {playlist ? (
+                          <>
+                            <a href={`/playlists/${playlist.id}`} role="button" class="secondary" style="flex: 1; margin: 0;">
+                              View Tracks
+                            </a>
+                            <button
+                              hx-post={`/actions/generate/${def.window}`}
+                              hx-swap="none"
+                              class="outline"
+                              style="flex: 0; margin: 0;"
+                              title="Regenerate playlist"
+                              onclick={`showToast('Generating ${def.window} playlist...', 'info')`}
+                            >
+                              🔄
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            hx-post={`/actions/generate/${def.window}`}
+                            hx-swap="none"
+                            class="secondary"
+                            style="flex: 1; margin: 0;"
+                            onclick={`showToast('Generating ${def.window} playlist...', 'info')`}
+                          >
+                            Generate Now
+                          </button>
+                        )}
+                      </footer>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Custom Playlists Section */}
+            {customPlaylists.length > 0 && (
               <section>
-                <h3>Genre Playlists</h3>
+                <h3>Custom Playlists</h3>
                 <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
-                  Genre-focused playlists automatically curated from your music library.
+                  Genre and mood combination playlists you've created.
                 </p>
 
                 <table>
@@ -191,7 +289,7 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
                     </tr>
                   </thead>
                   <tbody>
-                    {genrePlaylists.map(playlist => (
+                    {customPlaylists.map(playlist => (
                       <tr>
                         <td>
                           <a href={`/playlists/${playlist.id}`}>

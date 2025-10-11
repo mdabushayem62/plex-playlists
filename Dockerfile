@@ -46,9 +46,6 @@ COPY --from=builder /app/src/web ./src/web
 # Copy drizzle migrations
 COPY drizzle ./drizzle
 
-# Copy config templates
-COPY playlists.config.json ./playlists.config.json
-
 # Copy healthcheck script
 COPY healthcheck.js ./healthcheck.js
 

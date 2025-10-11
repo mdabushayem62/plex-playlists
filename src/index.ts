@@ -4,7 +4,6 @@ import { logger } from './logger.js';
 import { createPlaylistRunner } from './playlist-runner.js';
 import { createScheduler } from './scheduler.js';
 import type { PlaylistWindow } from './windows.js';
-import { getGenreWindows } from './windows.js';
 import { closeDb } from './db/index.js';
 import { resetPlexServer } from './plex/client.js';
 import { initializeDirectories } from './init.js';
@@ -40,13 +39,18 @@ export const createApp = (): App => {
         'daily playlists will run sequentially at scheduled time'
       );
 
-      // Load genre playlists from config (pinned + auto-discovered)
-      const genreWindows = await getGenreWindows();
-      for (const genreWindow of genreWindows) {
-        if (genreWindow.cron) {
-          cronExpressions[genreWindow.window] = genreWindow.cron;
-        }
+      // Add discovery playlist (weekly rediscovery of forgotten gems)
+      if (APP_ENV.DISCOVERY_CRON) {
+        cronExpressions['discovery'] = APP_ENV.DISCOVERY_CRON;
       }
+
+      // Add throwback playlist (nostalgia from 2-5 years ago)
+      if (APP_ENV.THROWBACK_CRON) {
+        cronExpressions['throwback'] = APP_ENV.THROWBACK_CRON;
+      }
+
+      // Note: Custom genre/mood playlists are managed via web UI (database-driven)
+      // and run via the CUSTOM_PLAYLISTS_CRON schedule below
 
       // Add custom playlists job
       if (APP_ENV.CUSTOM_PLAYLISTS_CRON) {
@@ -64,9 +68,8 @@ export const createApp = (): App => {
       logger.info(
         {
           dailyPlaylists: 3,
-          genreWindows: genreWindows.length,
-          pinnedGenres: genreWindows.filter(g => !g.autoDiscovered).length,
-          autoDiscovered: genreWindows.filter(g => g.autoDiscovered).length,
+          discoveryPlaylist: cronExpressions['discovery'] ? 'enabled' : 'disabled',
+          throwbackPlaylist: cronExpressions['throwback'] ? 'enabled' : 'disabled',
           customPlaylists: cronExpressions['custom-playlists'] ? 'enabled' : 'disabled',
           cacheJobs: Object.keys(cronExpressions).filter(k => k.startsWith('cache-')).length
         },

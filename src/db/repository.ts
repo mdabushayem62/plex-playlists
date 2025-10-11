@@ -1,7 +1,8 @@
 import { and, eq, gte, lte } from 'drizzle-orm';
-import { endOfDay, startOfDay } from 'date-fns';
+import { endOfDay, startOfDay, subDays } from 'date-fns';
 
 import type { CandidateTrack } from '../playlist/candidate-builder.js';
+import { APP_ENV } from '../config.js';
 import { getDb } from './index.js';
 import { jobRuns, playlistTracks, playlists } from './schema.js';
 
@@ -110,14 +111,25 @@ export const savePlaylist = async ({
   });
 };
 
+/**
+ * Fetch rating keys of tracks that were recently recommended
+ * Used for cross-playlist deduplication and time-based exclusions
+ *
+ * @param excludeWindow - Optional window name to exclude from results (e.g., don't exclude tracks from own window)
+ * @param exclusionDays - Number of days to look back (default: EXCLUSION_DAYS config, 0 = today only)
+ * @returns Set of rating keys to exclude from selection
+ */
 export const fetchExistingTrackRatingKeys = async (
-  excludeWindow?: string
+  excludeWindow?: string,
+  exclusionDays: number = APP_ENV.EXCLUSION_DAYS
 ): Promise<Set<string>> => {
   const db = getDb();
 
   const now = new Date();
-  const dayStart = startOfDay(now);
   const dayEnd = endOfDay(now);
+  const lookbackStart = exclusionDays > 0
+    ? startOfDay(subDays(now, exclusionDays))
+    : startOfDay(now); // 0 days = today only (backward compatible)
 
   const rows = await db
     .select({
@@ -129,7 +141,7 @@ export const fetchExistingTrackRatingKeys = async (
     .innerJoin(playlists, eq(playlistTracks.playlistId, playlists.id))
     .where(
       and(
-        gte(playlists.generatedAt, dayStart),
+        gte(playlists.generatedAt, lookbackStart),
         lte(playlists.generatedAt, dayEnd)
       )
     );
@@ -139,6 +151,45 @@ export const fetchExistingTrackRatingKeys = async (
     if (excludeWindow && row.window === excludeWindow) {
       continue;
     }
+    if (row.ratingKey) {
+      set.add(row.ratingKey);
+    }
+  }
+  return set;
+};
+
+/**
+ * Fetch recently-recommended tracks for a specific window
+ * Useful for preventing repetition within the same playlist type
+ *
+ * @param window - Window name (e.g., 'morning', 'afternoon', 'evening')
+ * @param exclusionDays - Number of days to look back (default: EXCLUSION_DAYS config)
+ * @returns Set of rating keys recommended in this window recently
+ */
+export const fetchRecentlyRecommendedForWindow = async (
+  window: string,
+  exclusionDays: number = APP_ENV.EXCLUSION_DAYS
+): Promise<Set<string>> => {
+  const db = getDb();
+
+  const now = new Date();
+  const lookbackStart = startOfDay(subDays(now, exclusionDays));
+
+  const rows = await db
+    .select({
+      ratingKey: playlistTracks.plexRatingKey
+    })
+    .from(playlistTracks)
+    .innerJoin(playlists, eq(playlistTracks.playlistId, playlists.id))
+    .where(
+      and(
+        eq(playlists.window, window),
+        gte(playlists.generatedAt, lookbackStart)
+      )
+    );
+
+  const set = new Set<string>();
+  for (const row of rows) {
     if (row.ratingKey) {
       set.add(row.ratingKey);
     }

@@ -22,11 +22,14 @@ import { logger } from '../../logger.js';
 // Helper to create mock history metadata
 interface MockHistoryItem {
   type: string;
+  ratingKey: string;
+  historyKey: string;
   key?: string;
   parentKey?: string;
   grandparentKey?: string;
   viewedAt: number;
   accountID: number;
+  librarySectionID: string;
 }
 
 function createMockHistoryItem(
@@ -37,9 +40,12 @@ function createMockHistoryItem(
 ): MockHistoryItem {
   return {
     type,
+    ratingKey, // Now included directly in HistoryMetadatum
+    historyKey: `/status/sessions/history/${ratingKey}`,
     key: `/library/metadata/${ratingKey}`,
     viewedAt: Math.floor(viewedAt.getTime() / 1000), // Plex uses seconds
-    accountID: accountId
+    accountID: accountId,
+    librarySectionID: '6'
   };
 }
 
@@ -81,8 +87,8 @@ describe('fetchHistoryForWindow', () => {
 
     const result = await fetchHistoryForWindow('morning', 30);
 
-    // New implementation uses raw API query instead of server.history()
-    expect(server.query).toHaveBeenCalled();
+    // New implementation uses server.history() with librarySectionId
+    expect(server.history).toHaveBeenCalled();
     expect(result).toHaveLength(1);
     expect(result[0].ratingKey).toBe('123');
   });
@@ -158,12 +164,15 @@ describe('fetchHistoryForWindow', () => {
     expect(result.map(r => r.ratingKey)).toEqual(['2', '3', '4']);
   });
 
-  it('extracts rating key from key field', async () => {
+  it('uses ratingKey field directly', async () => {
     const historyItems = [{
       type: 'track',
+      ratingKey: '123',
+      historyKey: '/status/sessions/history/123',
       key: '/library/metadata/123',
       viewedAt: Math.floor(new Date('2025-01-15T08:00:00').getTime() / 1000),
-      accountID: 1
+      accountID: 1,
+      librarySectionID: '6'
     }];
 
     const server = createMockServer(historyItems);
@@ -174,44 +183,15 @@ describe('fetchHistoryForWindow', () => {
     expect(result[0].ratingKey).toBe('123');
   });
 
-  it('extracts rating key from parentKey when key missing', async () => {
-    const historyItems = [{
-      type: 'track',
-      parentKey: '/library/metadata/456',
-      viewedAt: Math.floor(new Date('2025-01-15T08:00:00').getTime() / 1000),
-      accountID: 1
-    }];
-
-    const server = createMockServer(historyItems);
-    vi.mocked(getPlexServer).mockResolvedValue(server);
-
-    const result = await fetchHistoryForWindow('morning', 30);
-
-    expect(result[0].ratingKey).toBe('456');
-  });
-
-  it('extracts rating key from grandparentKey as last resort', async () => {
-    const historyItems = [{
-      type: 'track',
-      grandparentKey: '/library/metadata/789',
-      viewedAt: Math.floor(new Date('2025-01-15T08:00:00').getTime() / 1000),
-      accountID: 1
-    }];
-
-    const server = createMockServer(historyItems);
-    vi.mocked(getPlexServer).mockResolvedValue(server);
-
-    const result = await fetchHistoryForWindow('morning', 30);
-
-    expect(result[0].ratingKey).toBe('789');
-  });
-
   it('skips items with no rating key', async () => {
     const historyItems = [
       {
         type: 'track',
+        ratingKey: '', // Empty ratingKey should be skipped
+        historyKey: '',
         viewedAt: Math.floor(new Date('2025-01-15T08:00:00').getTime() / 1000),
-        accountID: 1
+        accountID: 1,
+        librarySectionID: '6'
       },
       createMockHistoryItem('track', '123', new Date('2025-01-15T08:00:00'))
     ];
@@ -232,9 +212,12 @@ describe('fetchHistoryForWindow', () => {
 
     const historyItems = [{
       type: 'track',
+      ratingKey: '123',
+      historyKey: '/status/sessions/history/123',
       key: '/library/metadata/123',
       viewedAt: timestampSeconds, // Timestamp in seconds
-      accountID: 1
+      accountID: 1,
+      librarySectionID: '6'
     }];
 
     const server = createMockServer(historyItems);
@@ -252,9 +235,12 @@ describe('fetchHistoryForWindow', () => {
 
     const historyItems = [{
       type: 'track',
+      ratingKey: '123',
+      historyKey: '/status/sessions/history/123',
       key: '/library/metadata/123',
       viewedAt: timestampMs, // Already in ms (large number)
-      accountID: 1
+      accountID: 1,
+      librarySectionID: '6'
     }];
 
     const server = createMockServer(historyItems);
@@ -304,17 +290,17 @@ describe('fetchHistoryForWindow', () => {
     expect(result[0].ratingKey).toBe('123');
   });
 
-  it('passes custom days and maxresults to server.query', async () => {
+  it('passes custom days and maxresults to server.history', async () => {
     const server = createMockServer([]);
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
     await fetchHistoryForWindow('morning', 60, 10000);
 
-    // New implementation uses raw API query
-    expect(server.query).toHaveBeenCalled();
-    const queryCall = vi.mocked(server.query).mock.calls[0];
-    expect(queryCall[0]).toContain('librarySectionID=6');
-    expect(queryCall[0]).toContain('X-Plex-Container-Size=10000');
+    // New implementation uses server.history() with librarySectionId
+    expect(server.history).toHaveBeenCalled();
+    const historyCall = vi.mocked(server.history).mock.calls[0];
+    expect(historyCall[0]).toBe(10000); // maxresults
+    expect(historyCall[4]).toBe('6'); // librarySectionId
   });
 
   it('logs debug messages', async () => {
@@ -327,10 +313,10 @@ describe('fetchHistoryForWindow', () => {
 
     await fetchHistoryForWindow('morning', 30);
 
-    // New implementation logs: "fetching history slice", "fetched history via raw API",
-    // "received history from plex", "history entry types", "history slice ready"
+    // Implementation logs: "fetching history slice", "received history from plex",
+    // "history entry types", "history slice ready"
     expect(logger.debug).toHaveBeenCalledWith(
-      expect.objectContaining({ window: 'morning' }),
+      expect.objectContaining({ window: 'morning', librarySectionId: '6' }),
       'fetching history slice'
     );
     expect(logger.debug).toHaveBeenCalledWith(

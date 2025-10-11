@@ -1,24 +1,26 @@
+import { Playlist } from '@ctrl/plex';
 import type { Track } from '@ctrl/plex';
 
 import { logger } from '../logger.js';
 import { getPlexServer } from './client.js';
 
-interface PlaylistCreateResponse {
-  MediaContainer: {
-    Metadata: Array<{
-      ratingKey: string;
-      key: string;
-      title: string;
-    }>;
-  };
-}
+// Export Playlist class for direct usage if needed
+export { Playlist };
 
+/**
+ * Delete a playlist by ratingKey
+ * Convenience wrapper around Playlist deletion
+ */
 export const deletePlaylist = async (ratingKey: string): Promise<void> => {
   const server = await getPlexServer();
   await server.query(`/playlists/${ratingKey}`, 'delete');
   logger.info({ ratingKey }, 'deleted existing playlist');
 };
 
+/**
+ * Create an audio playlist with tracks
+ * Uses native @ctrl/plex Playlist.create() with audio support
+ */
 export const createAudioPlaylist = async (
   title: string,
   description: string | undefined,
@@ -29,44 +31,37 @@ export const createAudioPlaylist = async (
   }
 
   const server = await getPlexServer();
-  const ratingKeys = tracks.map(track => track.ratingKey).join(',');
 
-  const params = new URLSearchParams({
-    uri: `${server._uriRoot()}/library/metadata/${ratingKeys}`,
-    type: 'audio',
-    title,
-    smart: '0'
-  });
-  if (description) {
-    params.set('summary', description);
+  // Use native Playlist.create with audio support from fork
+  const playlist = await Playlist.create(server, title, { items: tracks });
+
+  // Type guard: Playlist.create always returns a playlist with ratingKey and key set
+  if (!playlist.ratingKey || !playlist.key) {
+    throw new Error('Playlist creation failed: missing ratingKey or key');
   }
 
-  const response = await server.query<PlaylistCreateResponse>(`/playlists?${params.toString()}`, 'post');
-  const metadata = response.MediaContainer?.Metadata?.[0];
-  if (!metadata) {
-    throw new Error('failed to create playlist');
+  // Update summary if provided (Playlist.create doesn't support summary parameter yet)
+  if (description !== undefined) {
+    await Playlist.update(server, playlist.ratingKey, { summary: description });
   }
 
-  logger.info({ title, ratingKey: metadata.ratingKey }, 'created audio playlist');
-  return { ratingKey: metadata.ratingKey, key: metadata.key };
+  logger.info({ title, ratingKey: playlist.ratingKey }, 'created audio playlist');
+
+  return { ratingKey: playlist.ratingKey, key: playlist.key };
 };
 
+/**
+ * Update playlist metadata by ratingKey
+ * Uses native @ctrl/plex Playlist.update() static method
+ */
 export const updatePlaylistSummary = async (
   ratingKey: string,
   { title, summary }: { title?: string; summary?: string }
 ): Promise<void> => {
-  const server = await getPlexServer();
-  const params = new URLSearchParams();
-  if (title) {
-    params.set('title', title);
-  }
-  if (summary) {
-    params.set('summary', summary);
-  }
-
-  if ([...params.keys()].length === 0) {
+  if (!title && !summary) {
     return;
   }
 
-  await server.query(`/playlists/${ratingKey}?${params.toString()}`, 'put');
+  const server = await getPlexServer();
+  await Playlist.update(server, ratingKey, { title, summary });
 };

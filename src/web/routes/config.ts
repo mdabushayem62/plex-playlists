@@ -179,85 +179,8 @@ configRouter.get('/settings', async (req, res) => {
 });
 
 
-/**
- * Playlist configuration page
- */
-configRouter.get('/playlists', async (req, res) => {
-  try {
-    const setupComplete = await getSetupStatus();
-
-    // Read playlists.config.json
-    const configPath = getConfigFilePath('playlists.config.json');
-    let playlistConfig = null;
-    let error = null;
-
-    try {
-      const content = await fs.readFile(configPath, 'utf-8');
-      playlistConfig = JSON.parse(content);
-    } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to read config';
-    }
-
-    // Render TSX component
-    const { PlaylistsConfigPage } = await import(getViewPath('config/playlists.tsx'));
-    const html = PlaylistsConfigPage({
-      config: playlistConfig,
-      configPath,
-      error,
-      page: 'config',
-      setupComplete,
-      breadcrumbs: [
-        { label: 'Dashboard', url: '/' },
-        { label: 'Configuration', url: '/config' },
-        { label: 'Playlists Config', url: null }
-      ]
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error) {
-    console.error('Playlists config page error:', error);
-    res.status(500).send('Internal server error');
-  }
-});
-
-
-
-/**
- * Save playlist configuration
- */
-configRouter.post('/playlists/save', async (req, res) => {
-  try {
-    const { playlistsConfig } = req.body;
-
-    if (!playlistsConfig) {
-      return res.status(400).json({ error: 'Missing playlist configuration' });
-    }
-
-    // Validate JSON structure
-    let config;
-    try {
-      config = JSON.parse(playlistsConfig);
-    } catch {
-      return res.status(400).json({ error: 'Invalid JSON format' });
-    }
-
-    // Basic validation
-    if (config.genrePlaylists) {
-      if (config.genrePlaylists.pinned && !Array.isArray(config.genrePlaylists.pinned)) {
-        return res.status(400).json({ error: 'pinned must be an array' });
-      }
-    }
-
-    // Save to database and write back to .env
-    await setSettingWithWriteback('playlists_config', playlistsConfig, true);
-
-    res.json({ success: true });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Failed to save';
-    res.status(500).json({ error: errorMsg });
-  }
-});
+// Genre playlist configuration routes removed - feature deprecated
+// Custom playlists are now managed via /playlists page (database-driven)
 
 /**
  * API: Get all settings with metadata for inline editing

@@ -7,13 +7,13 @@ import { Router } from 'express';
 import { getViewPath } from '../server.js';
 import { getDb } from '../../db/index.js';
 import { genreCache, albumGenreCache, jobRuns, setupState, playlists } from '../../db/schema.js';
-import { createPlaylistRunner } from '../../playlist-runner.js';
-import { getGenreWindows, TIME_WINDOWS, type PlaylistWindow } from '../../windows.js';
+import { TIME_WINDOWS, SPECIAL_WINDOWS, type PlaylistWindow } from '../../windows.js';
 import { desc, lt, eq, and, gte, lte } from 'drizzle-orm';
 import { importRatingsFromCSVs } from '../../import/importer-fast.js';
-import { warmCache, warmAlbumCache, clearAllCache } from '../../cache/cache-cli.js';
+import { clearAllCache } from '../../cache/cache-cli.js';
 import { progressTracker, formatETA } from '../../utils/progress-tracker.js';
 import { existsSync } from 'fs';
+import { jobQueue } from '../../queue/job-queue.js';
 
 export const actionsRouter = Router();
 
@@ -22,10 +22,13 @@ export const actionsRouter = Router();
  */
 async function isValidWindow(window: string): Promise<boolean> {
   const timeWindows = TIME_WINDOWS as readonly string[];
-  if (timeWindows.includes(window)) return true;
+  const specialWindows = SPECIAL_WINDOWS as readonly string[];
 
-  const genreWindows = await getGenreWindows();
-  return genreWindows.some(g => g.window === window);
+  // Check time, special, cache, or custom playlist windows
+  return timeWindows.includes(window) ||
+         specialWindows.includes(window) ||
+         ['cache-warm', 'cache-refresh', 'custom-playlists'].includes(window) ||
+         window.startsWith('custom-');
 }
 
 /**
@@ -37,7 +40,6 @@ actionsRouter.get('/', async (req, res) => {
 
     // Get available windows
     const timeWindows = TIME_WINDOWS;
-    const genreWindows = await getGenreWindows();
 
     // Get active jobs from database (status = 'running')
     const activeJobs = await db
@@ -85,7 +87,7 @@ actionsRouter.get('/', async (req, res) => {
     const { ActionsPage } = await import(getViewPath('actions/index.tsx'));
     const html = ActionsPage({
       timeWindows,
-      genreWindows,
+      genreWindows: [], // Genre playlists deprecated - custom playlists managed via /playlists
       recentJobs,
       cacheStats,
       activeJobs: activeJobs.map(job => ({
@@ -120,60 +122,13 @@ actionsRouter.post('/generate/:window', async (req, res) => {
       return res.status(400).json({ error: 'Invalid window' });
     }
 
-    // Create job in database
-    const db = getDb();
-    const [jobRecord] = await db
-      .insert(jobRuns)
-      .values({
-        window,
-        status: 'running',
-        startedAt: new Date()
-      })
-      .returning();
+    // Enqueue the job (returns immediately with job ID)
+    const jobId = await jobQueue.enqueue({
+      type: 'playlist',
+      window
+    });
 
-    // Run playlist generation asynchronously
-    // Pass the jobId so the runner doesn't create a duplicate job record
-    const runner = createPlaylistRunner();
-    runner
-      .run(window, jobRecord.id)
-      .then(async () => {
-        // Runner already updated the job status, but double-check
-        const [currentJob] = await db
-          .select()
-          .from(jobRuns)
-          .where(eq(jobRuns.id, jobRecord.id))
-          .limit(1);
-
-        // Only update if runner didn't already mark as complete
-        if (currentJob && currentJob.status === 'running') {
-          await db
-            .update(jobRuns)
-            .set({ status: 'success', finishedAt: new Date() })
-            .where(eq(jobRuns.id, jobRecord.id));
-        }
-      })
-      .catch(async (error) => {
-        // Runner already recorded the error, but double-check
-        const [currentJob] = await db
-          .select()
-          .from(jobRuns)
-          .where(eq(jobRuns.id, jobRecord.id))
-          .limit(1);
-
-        // Only update if runner didn't already mark as failed
-        if (currentJob && currentJob.status === 'running') {
-          await db
-            .update(jobRuns)
-            .set({
-              status: 'failed',
-              finishedAt: new Date(),
-              error: error instanceof Error ? error.message : 'Unknown error'
-            })
-            .where(eq(jobRuns.id, jobRecord.id));
-        }
-      });
-
-    res.json({ jobId: jobRecord.id, window });
+    res.json({ jobId, window });
   } catch (error) {
     console.error('Generate playlist error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -481,43 +436,13 @@ actionsRouter.post('/cache/clear-all', async (req, res) => {
  */
 actionsRouter.post('/cache/warm', async (req, res) => {
   try {
-    const db = getDb();
+    // Enqueue the job (returns immediately with job ID)
+    const jobId = await jobQueue.enqueue({
+      type: 'cache-warm',
+      concurrency: 2
+    });
 
-    // Create job in database
-    const [jobRecord] = await db
-      .insert(jobRuns)
-      .values({
-        window: 'cache-warm',
-        status: 'running',
-        startedAt: new Date()
-      })
-      .returning();
-
-    // Send immediate response
-    res.json({ jobId: jobRecord.id, message: 'Artist cache warming started' });
-
-    // Run cache warming asynchronously with conservative concurrency
-    // Pass the jobId so progress tracking works with SSE
-    warmCache({
-      concurrency: 2,
-      jobId: jobRecord.id
-    })
-      .then(async () => {
-        await db
-          .update(jobRuns)
-          .set({ status: 'success', finishedAt: new Date() })
-          .where(eq(jobRuns.id, jobRecord.id));
-      })
-      .catch(async (error) => {
-        await db
-          .update(jobRuns)
-          .set({
-            status: 'failed',
-            finishedAt: new Date(),
-            error: error instanceof Error ? error.message : 'Unknown error'
-          })
-          .where(eq(jobRuns.id, jobRecord.id));
-      });
+    res.json({ jobId, message: 'Artist cache warming started' });
   } catch (error) {
     console.error('Cache warm error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -529,43 +454,13 @@ actionsRouter.post('/cache/warm', async (req, res) => {
  */
 actionsRouter.post('/cache/warm-albums', async (req, res) => {
   try {
-    const db = getDb();
+    // Enqueue the job (returns immediately with job ID)
+    const jobId = await jobQueue.enqueue({
+      type: 'cache-albums',
+      concurrency: 3
+    });
 
-    // Create job in database
-    const [jobRecord] = await db
-      .insert(jobRuns)
-      .values({
-        window: 'album-cache-warm',
-        status: 'running',
-        startedAt: new Date()
-      })
-      .returning();
-
-    // Send immediate response
-    res.json({ jobId: jobRecord.id, message: 'Album cache warming started' });
-
-    // Run album cache warming asynchronously with conservative concurrency
-    // Pass the jobId so progress tracking works with SSE
-    warmAlbumCache({
-      concurrency: 3,
-      jobId: jobRecord.id
-    })
-      .then(async () => {
-        await db
-          .update(jobRuns)
-          .set({ status: 'success', finishedAt: new Date() })
-          .where(eq(jobRuns.id, jobRecord.id));
-      })
-      .catch(async (error) => {
-        await db
-          .update(jobRuns)
-          .set({
-            status: 'failed',
-            finishedAt: new Date(),
-            error: error instanceof Error ? error.message : 'Unknown error'
-          })
-          .where(eq(jobRuns.id, jobRecord.id));
-      });
+    res.json({ jobId, message: 'Album cache warming started' });
   } catch (error) {
     console.error('Album cache warm error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -793,7 +688,18 @@ actionsRouter.post('/history/cancel-running', async (req, res) => {
   try {
     const db = getDb();
 
-    // Update all running jobs to cancelled
+    // Get all running jobs from the queue
+    const activeJobIds = jobQueue.getActiveJobIds();
+
+    // Cancel each active job via the queue
+    let cancelledCount = 0;
+    for (const jobId of activeJobIds) {
+      if (jobQueue.cancel(jobId)) {
+        cancelledCount++;
+      }
+    }
+
+    // Also update any orphaned running jobs in the database
     const result = await db
       .update(jobRuns)
       .set({
@@ -803,9 +709,71 @@ actionsRouter.post('/history/cancel-running', async (req, res) => {
       .where(eq(jobRuns.status, 'running'))
       .returning();
 
-    res.json({ success: true, cancelled: result.length });
+    res.json({ success: true, cancelled: cancelledCount + result.length });
   } catch (error) {
     console.error('Cancel running jobs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Cancel a specific job by ID
+ */
+actionsRouter.post('/jobs/:jobId/cancel', async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.jobId);
+    if (isNaN(jobId)) {
+      return res.status(400).json({ error: 'Invalid job ID' });
+    }
+
+    // Attempt to cancel the job via the queue
+    const cancelled = jobQueue.cancel(jobId);
+
+    if (cancelled) {
+      res.json({ success: true, message: 'Job cancellation initiated' });
+    } else {
+      // Job might not be in the queue (already completed or not found)
+      const db = getDb();
+      const [job] = await db
+        .select()
+        .from(jobRuns)
+        .where(eq(jobRuns.id, jobId))
+        .limit(1);
+
+      if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+
+      if (job.status !== 'running') {
+        return res.status(400).json({ error: `Job is ${job.status}, cannot cancel` });
+      }
+
+      // Update orphaned running job
+      await db
+        .update(jobRuns)
+        .set({
+          status: 'cancelled',
+          finishedAt: new Date()
+        })
+        .where(eq(jobRuns.id, jobId));
+
+      res.json({ success: true, message: 'Job marked as cancelled' });
+    }
+  } catch (error) {
+    console.error('Cancel job error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Get queue statistics and status
+ */
+actionsRouter.get('/queue/stats', async (req, res) => {
+  try {
+    const stats = jobQueue.getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Queue stats error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -129,20 +129,41 @@ The importer automatically handles multiple YouTube Music export formats:
 2. **CSV or JSON files** exported from Spotify or YouTube Music
 3. **plex-playlists** installed and configured
 
-### Basic Import Command
+### Import Commands
+
+Choose your deployment method:
+
+#### 🐳 Docker
 
 ```bash
-plex-playlists import /path/to/files-folder
+# Copy files into container (or use mounted volume)
+docker cp ~/music-exports plex-playlists:/tmp/exports
+
+# Run import
+docker-compose exec plex-playlists node dist/cli.js import /tmp/exports
+
+# Dry run (preview without changes)
+docker-compose exec plex-playlists node dist/cli.js import /tmp/exports --dry-run
 ```
 
-### Options
+**Or use mounted volume:**
+```yaml
+# docker-compose.yml
+volumes:
+  - ./music-exports:/exports:ro
+```
+```bash
+docker-compose exec plex-playlists node dist/cli.js import /exports
+```
+
+#### 💻 CLI
 
 ```bash
-# Dry run (preview without making changes)
-plex-playlists import /path/to/csv-folder --dry-run
+# Import from directory
+plex-playlists import ~/music-exports/
 
-# Example with actual path
-plex-playlists import ~/music-exports/spotify/
+# Dry run (preview without making changes)
+plex-playlists import ~/music-exports/ --dry-run
 ```
 
 ### Import Process
@@ -247,6 +268,25 @@ While the default ratings work well, you can customize them if needed by modifyi
 
 ### Batch Processing Multiple Services
 
+**Docker:**
+```bash
+#!/bin/bash
+# import-all.sh
+
+echo "Importing Spotify..."
+docker-compose exec plex-playlists node dist/cli.js import /exports/spotify
+
+echo "Importing YouTube Music..."
+docker-compose exec plex-playlists node dist/cli.js import /exports/youtube
+
+echo "Checking cache stats..."
+docker-compose exec plex-playlists node dist/cli.js cache stats
+
+echo "Done! Run a playlist to see results:"
+docker-compose exec plex-playlists node dist/cli.js run morning
+```
+
+**CLI:**
 ```bash
 #!/bin/bash
 # import-all.sh
@@ -392,6 +432,19 @@ After importing:
 
 ### CLI Reference
 
+**Docker:**
+```bash
+# Import ratings from CSV/JSON files
+docker-compose exec plex-playlists node dist/cli.js import <directory> [--dry-run]
+
+# Check what import would affect (no changes made)
+docker-compose exec plex-playlists node dist/cli.js import /exports/ --dry-run
+
+# View detailed logs
+docker-compose logs -f
+```
+
+**CLI:**
 ```bash
 # Import ratings from CSV/JSON files
 plex-playlists import <directory> [--dry-run]
@@ -422,4 +475,4 @@ If you encounter issues:
 4. Verify file format matches Spotify CSV or YouTube Music JSON/CSV formats
 5. Test Plex connection: `plex-playlists cache stats`
 
-For bugs or feature requests, see the main [README.md](./README.md).
+For bugs or feature requests, see the main [README.md](../README.md).

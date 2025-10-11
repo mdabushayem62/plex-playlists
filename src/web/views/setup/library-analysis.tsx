@@ -134,8 +134,8 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
             <p style="margin: 0 0 1rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
               Enhance genre metadata by adding Spotify and/or Last.fm API keys.
               Setup guides:
-              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/lastfm-setup.md" target="_blank">Last.fm</a> •
-              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/spotify-setup.md" target="_blank">Spotify</a>
+              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/lastfm-setup.md" target="_blank">Last.fm</a> •
+              {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/spotify-setup.md" target="_blank">Spotify</a>
             </p>
 
             <form id="apiKeysForm" hx-post="/config/environment/save-api-keys" hx-swap="innerHTML" hx-target="#api-save-response">

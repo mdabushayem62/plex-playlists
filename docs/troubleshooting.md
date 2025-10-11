@@ -1,583 +1,409 @@
 # Troubleshooting Guide
 
-Comprehensive guide to common issues, error recovery, and operational concerns for homelab deployments.
+Quick solutions for common issues. Choose your deployment method below.
 
 ---
 
-## Error Recovery & Resilience
+## 🐳 Docker Users
 
-### What Happens When Plex Server is Down?
+### Container Won't Start
 
-**Scheduled Runs:**
-- If Plex is unreachable during a scheduled playlist generation, the job will **fail gracefully**
-- The error is logged to the database in the `job_runs` table with status `'failed'`
-- The scheduler **continues running** and will retry at the next scheduled time
-- No data corruption or crashes occur
-
-**Behavior:**
-```javascript
-// Example from scheduler.ts
-cron.schedule(expression, () => {
-  runWindowJob(window)
-    .catch(error => logger.error({ window, err: error }, 'playlist generation failed'));
-  // Scheduler continues running despite the error
-});
-```
-
-**Check Failed Jobs:**
-```sql
--- View recent failed jobs
-SELECT * FROM job_runs WHERE status = 'failed' ORDER BY started_at DESC LIMIT 10;
-```
-
-**Manual Recovery:**
+**Check logs:**
 ```bash
-# After Plex is back online, manually trigger failed window
-docker-compose exec plex-playlists node dist/cli.js run morning
-
-# Or restart the scheduler to clear any stuck state
-docker-compose restart plex-playlists
+docker-compose logs
 ```
 
----
+**Common causes:**
+- Invalid Plex token → Re-generate and update `.env`
+- Port 8687 in use → Change `WEB_UI_PORT` in `.env`
+- Database locked → Stop other instances: `docker ps | grep plex-playlists`
 
-## Rate Limiting & API Timeouts
-
-### Plex API
-
-**Current Behavior:**
-- Uses `@ctrl/plex` library defaults (no custom timeout configuration)
-- No built-in retry logic for Plex API calls
-- Connection timeout: ~30 seconds (library default)
-- No rate limiting (Plex generally doesn't enforce strict rate limits for personal servers)
-
-**If Plex API is Slow:**
-- Large libraries (>10,000 tracks) may take time to fetch metadata
-- Fallback fetch limited to 200 tracks by default (configurable via `FALLBACK_LIMIT`)
-- Sonic similarity expansion happens sequentially to avoid overwhelming Plex
-
-**Timeout Errors:**
-```
-Error: playlist run failed
-Cause: getaddrinfo ENOTFOUND localhost
-```
-or
-```
-Error: playlist run failed
-Cause: connect ETIMEDOUT
-```
-
-**Solutions:**
-1. Increase `FALLBACK_LIMIT` if you have a fast Plex server and want more variety:
-   ```bash
-   FALLBACK_LIMIT=500  # Default is 200
-   ```
-
-2. Decrease `FALLBACK_LIMIT` if Plex API times out frequently:
-   ```bash
-   FALLBACK_LIMIT=100  # More conservative
-   ```
-
-3. Check Plex server health:
-   ```bash
-   curl -I http://localhost:32400/identity?X-Plex-Token=YOUR_TOKEN
-   ```
-
-### Spotify API
-
-**Built-in Rate Limiting:**
-- ✅ Automatic rate limit detection (HTTP 429 responses)
-- ✅ Exponential backoff retry (1s → 2s → 4s → 8s → 16s)
-- ✅ Respects `Retry-After` header from Spotify
-- ✅ Timeout: 5 seconds per request
-- ✅ Retry attempts: Up to 5 times
-
-**Configuration:**
-```typescript
-// From src/metadata/providers/spotify.ts
-timeout: { request: 5000 }      // 5 second timeout
-retry: { limit: 5 }              // 5 retry attempts
-baseRetryDelay: 1000             // Start at 1 second, exponential backoff
-```
-
-**Rate Limit Log Example:**
-```
-INFO: waiting for spotify rate limit to reset (waitMs: 3000)
-INFO: spotify rate limit hit, retrying after delay (attempt: 2, delayMs: 2000)
-```
-
-### Last.fm API
-
-**Built-in Configuration:**
-- ✅ Timeout: 10 seconds per request
-- ✅ Retry attempts: Up to 3 times
-- ✅ Last.fm is very generous with rate limits (typically no issues)
-
-**Configuration:**
-```typescript
-// From src/metadata/providers/lastfm.ts
-timeout: { request: 10000 }     // 10 second timeout
-retry: { limit: 3 }              // 3 retry attempts
-```
-
----
-
-## Database Backup & Restore
-
-### Backup Strategy
-
-**Automatic Backups (Recommended):**
-
-Create a simple backup script that runs daily:
-
+**Fix:**
 ```bash
-#!/bin/bash
-# /usr/local/bin/backup-plex-playlists.sh
-
-BACKUP_DIR="/path/to/backups/plex-playlists"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-DB_PATH="/path/to/data/plex-playlists.db"
-
-# Create backup directory if it doesn't exist
-mkdir -p "$BACKUP_DIR"
-
-# Copy database (handles SQLite locking gracefully)
-sqlite3 "$DB_PATH" ".backup '$BACKUP_DIR/plex-playlists-$TIMESTAMP.db'"
-
-# Keep only last 30 days of backups
-find "$BACKUP_DIR" -name "plex-playlists-*.db" -mtime +30 -delete
-
-echo "Backup complete: plex-playlists-$TIMESTAMP.db"
-```
-
-**Add to crontab:**
-```bash
-# Run daily at 3 AM
-0 3 * * * /usr/local/bin/backup-plex-playlists.sh >> /var/log/plex-playlists-backup.log 2>&1
-```
-
-**Docker Volume Backup:**
-```bash
-# Backup Docker volume
-docker run --rm -v plex-playlists_data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/plex-playlists-data-$(date +%Y%m%d).tar.gz /data
-
-# List backups
-ls -lh plex-playlists-data-*.tar.gz
-```
-
-### Restore from Backup
-
-**Method 1: Direct File Restore**
-```bash
-# Stop the container
 docker-compose down
-
-# Replace database file
-cp /path/to/backups/plex-playlists-20250109.db ./data/plex-playlists.db
-
-# Restart
+# Fix .env
 docker-compose up -d
 ```
 
-**Method 2: Docker Volume Restore**
+### Can't Connect to Plex
+
+**Test connection:**
 ```bash
-# Stop the container
-docker-compose down
-
-# Restore from tar
-docker run --rm -v plex-playlists_data:/data -v $(pwd):/backup \
-  alpine tar xzf /backup/plex-playlists-data-20250109.tar.gz -C /
-
-# Restart
-docker-compose up -d
+curl -I http://localhost:32400/identity?X-Plex-Token=YOUR_TOKEN
 ```
 
-**Verify Restore:**
-```bash
-# Check database integrity
-docker-compose exec plex-playlists node -e "
-  const db = require('better-sqlite3')('/data/plex-playlists.db');
-  const count = db.prepare('SELECT COUNT(*) as cnt FROM playlists').get();
-  console.log('Playlists in database:', count.cnt);
-"
+**If fails:**
+- Local Plex: Try `network_mode: host` in `docker-compose.yml`
+- Remote Plex: Use IP address in `PLEX_BASE_URL` (e.g., `http://192.168.1.100:32400`)
 
-# Or query job history
-docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db \
-  "SELECT window, datetime(started_at/1000, 'unixepoch') as started, status FROM job_runs ORDER BY started_at DESC LIMIT 10;"
-```
-
-### Database Corruption Recovery
-
-**Symptoms:**
-- `Error: database disk image is malformed`
-- `Error: file is not a database`
-- Container crashes on startup
-
-**Recovery Steps:**
-```bash
-# 1. Stop the container
-docker-compose down
-
-# 2. Try SQLite recovery
-sqlite3 ./data/plex-playlists.db ".recover" | sqlite3 ./data/plex-playlists-recovered.db
-
-# 3. If recovery works, replace the database
-mv ./data/plex-playlists.db ./data/plex-playlists-corrupted-backup.db
-mv ./data/plex-playlists-recovered.db ./data/plex-playlists.db
-
-# 4. If recovery fails, restore from backup
-cp /path/to/backups/plex-playlists-LATEST.db ./data/plex-playlists.db
-
-# 5. Restart
-docker-compose up -d
-```
-
-**If No Backup Exists:**
-```bash
-# Nuclear option: delete database and regenerate from scratch
-docker-compose down
-rm -f ./data/plex-playlists.db*
-docker-compose up -d
-
-# Database will be recreated with migrations on startup
-# Run manual playlist generation to rebuild history
-docker-compose exec plex-playlists node dist/cli.js run morning
-```
-
----
-
-## Health Monitoring
-
-### Container Health Check
-
-**Current Healthcheck** (basic process check):
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD node -e "process.exit(0)" || exit 1
-```
-
-This only verifies the Node.js process is running, not that the scheduler is working.
-
-**Improved Healthcheck** (see Docker section below for implementation):
-- Check if database is accessible
-- Verify scheduler has run jobs recently
-- Ensure Plex connection is alive
-
-### Monitoring Job Status
-
-**View Recent Jobs:**
-```bash
-# Show last 20 job runs
-docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db <<EOF
-.headers on
-.mode column
-SELECT
-  window,
-  datetime(started_at/1000, 'unixepoch') as started,
-  datetime(finished_at/1000, 'unixepoch') as finished,
-  status,
-  substr(error, 1, 50) as error_preview
-FROM job_runs
-ORDER BY started_at DESC
-LIMIT 20;
-EOF
-```
-
-**Check for Consecutive Failures:**
-```bash
-# Alert if last 3 runs all failed
-docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db \
-  "SELECT COUNT(*) FROM (SELECT status FROM job_runs ORDER BY started_at DESC LIMIT 3) WHERE status = 'failed';"
-```
-
-**Prometheus Metrics (Future Enhancement):**
-```bash
-# Example metrics endpoint (not yet implemented)
-curl http://localhost:9090/metrics
-
-# Would show:
-# plex_playlists_jobs_total{window="morning",status="success"} 42
-# plex_playlists_jobs_total{window="morning",status="failed"} 2
-# plex_playlists_last_run_timestamp{window="morning"} 1704772800
-```
-
----
-
-## Common Error Scenarios
-
-### 1. "No tracks selected for playlist"
-
-**Cause:** Insufficient history or overly restrictive filters.
-
-**Solutions:**
-```bash
-# Check if playlists have been generated
-docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db \
-  "SELECT COUNT(*) FROM job_runs WHERE status = 'success';"
-
-# Temporarily lower constraints
-MAX_GENRE_SHARE=0.6  # Allow 60% instead of 40%
-MAX_PER_ARTIST=3     # Allow 3 tracks per artist instead of 2
-```
-
-### 2. "Database is locked"
-
-**Cause:** Multiple processes accessing SQLite simultaneously.
-
-**Solutions:**
-```bash
-# Ensure only one container is running
-docker ps | grep plex-playlists
-
-# If multiple instances, stop extras
-docker stop <container-id>
-
-# Check for stale lock files
-ls -la ./data/plex-playlists.db*
-rm -f ./data/plex-playlists.db-shm ./data/plex-playlists.db-wal
-```
-
-### 3. "Plex authentication failed"
-
-**Cause:** Invalid or expired auth token.
-
-**Solutions:**
-```bash
-# Test Plex connection manually
-curl -H "X-Plex-Token: YOUR_TOKEN" http://localhost:32400/identity
-
-# Get a fresh token (see README "Getting Your Plex Token" section)
-
-# Update .env file
-PLEX_AUTH_TOKEN=new-token-here
-
-# Restart container
-docker-compose restart plex-playlists
-```
-
-### 4. Genre Cache Warming Timeouts
-
-**Cause:** Too many artists, Spotify/Last.fm rate limits.
-
-**Solutions:**
-```bash
-# Use lower concurrency
-plex-playlists cache warm --concurrency=5  # Default is 10
-
-# Warm cache in batches over multiple days
-# Let the scheduled runs naturally build the cache over time
-```
-
----
-
-## Docker & Networking
-
-### Host Network Mode (Local Plex)
-
-If Plex runs on `localhost` or same Docker host:
-
+**Host network mode:**
 ```yaml
 # docker-compose.yml
 services:
   plex-playlists:
     network_mode: host
-    environment:
-      - PLEX_BASE_URL=http://localhost:32400
 ```
 
-**Important:** In host mode, published ports are ignored (container uses host network directly).
+### Playlists Not Generating
 
-### Bridge Mode (Remote Plex)
+**Check web UI dashboard for errors**
 
-If Plex runs on a different server:
-
-```yaml
-# docker-compose.yml
-services:
-  plex-playlists:
-    networks:
-      - default
-    ports:
-      - "9090:9090"  # If you add metrics endpoint later
-    environment:
-      - PLEX_BASE_URL=http://192.168.1.100:32400
+**Manual test:**
+```bash
+docker-compose exec plex-playlists node dist/cli.js run morning
 ```
 
-### DNS Resolution Issues
+**Common issues:**
+- No listening history → Play music in Plex first
+- Wrong timezone → Set `TZ=America/New_York` in `.env`
+- Cron schedule incorrect → Verify cron syntax
 
-**Symptoms:**
+### Wrong Timezone
+
+**Check current timezone:**
+```bash
+docker-compose exec plex-playlists date
 ```
-Error: getaddrinfo EAI_AGAIN plex.example.com
+
+**Fix in `.env`:**
+```bash
+TZ=America/New_York  # Your timezone
 ```
+
+**Restart:**
+```bash
+docker-compose restart
+```
+
+### Database Corruption
+
+**Symptoms:** `database disk image is malformed`
+
+**Recovery:**
+```bash
+docker-compose down
+docker volume rm plex-playlists_data
+docker-compose up -d
+```
+
+**Or restore from backup:**
+```bash
+docker cp ./backup.db plex-playlists:/data/plex-playlists.db
+```
+
+### Update to Latest Version
+
+```bash
+docker-compose down
+git pull
+docker-compose build
+docker-compose up -d
+```
+
+---
+
+## 💻 CLI Users
+
+### Installation Issues
+
+**Node version too old:**
+```bash
+node --version  # Must be 20+
+nvm install 20
+nvm use 20
+```
+
+**Build fails:**
+```bash
+rm -rf node_modules dist
+npm install
+npm run build
+```
+
+### Permission Errors
+
+**Database access denied:**
+```bash
+chmod 755 ./data
+chmod 644 ./data/plex-playlists.db
+```
+
+**Can't write logs:**
+```bash
+mkdir -p ~/.local/share/plex-playlists/logs
+chmod 755 ~/.local/share/plex-playlists/logs
+```
+
+### CLI Command Not Found
+
+**Use full path:**
+```bash
+node /path/to/plex-playlists/dist/cli.js run morning
+```
+
+**Or create alias:**
+```bash
+alias plex-playlists="node /path/to/plex-playlists/dist/cli.js"
+```
+
+### Scheduler Not Running
+
+**Check if already running:**
+```bash
+ps aux | grep "plex-playlists start"
+```
+
+**Kill old instance:**
+```bash
+pkill -f "plex-playlists start"
+```
+
+**Check logs:**
+```bash
+plex-playlists start > /var/log/plex-playlists.log 2>&1
+tail -f /var/log/plex-playlists.log
+```
+
+### Systemd Service Issues
+
+**Service won't start:**
+```bash
+sudo systemctl status plex-playlists
+sudo journalctl -u plex-playlists -f
+```
+
+**Fix permissions:**
+```bash
+sudo chown your-user:your-user /path/to/plex-playlists
+```
+
+**Reload after editing service:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart plex-playlists
+```
+
+---
+
+## Common to Both
+
+### No Tracks in Playlist
+
+**Causes:**
+- No listening history in time window
+- Overly restrictive constraints
 
 **Solutions:**
-```yaml
-# docker-compose.yml
-services:
-  plex-playlists:
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    extra_hosts:
-      - "plex.local:192.168.1.100"
+```bash
+# Check listening history
+# (Via Plex Web → More → History)
+
+# Relax constraints in .env
+MAX_GENRE_SHARE=0.6      # Allow 60% per genre
+MAX_PER_ARTIST=3         # Allow 3 tracks per artist
+HISTORY_DAYS=60          # Analyze more history
+```
+
+### Plex Authentication Failed
+
+**Cause:** Invalid or expired token
+
+**Get new token:**
+1. Plex Web → Play media → ⋯ → Get Info → View XML
+2. Copy `X-Plex-Token=...` from URL
+3. Update `.env`
+4. Restart
+
+### Rate Limiting (Spotify/Last.fm)
+
+**Spotify 429 errors:**
+- Built-in exponential backoff (automatic)
+- Reduce concurrency: `CACHE_WARM_CONCURRENCY=5`
+
+**Last.fm timeouts:**
+- Very rare (generous limits)
+- Reduce concurrency if needed
+
+**Check rate limit status:**
+```bash
+# Docker
+docker-compose logs | grep "rate limit"
+
+# CLI
+grep "rate limit" /var/log/plex-playlists.log
+```
+
+### Genre Cache Issues
+
+**Cache not populating:**
+```bash
+# Docker
+docker-compose exec plex-playlists node dist/cli.js cache warm --dry-run
+
+# CLI
+plex-playlists cache warm --dry-run
+```
+
+**API keys not working:**
+- Verify keys in `.env`
+- Test Spotify: `curl -X POST https://accounts.spotify.com/api/token ...`
+- Test Last.fm: `curl "http://ws.audioscrobbler.com/2.0/?method=artist.getinfo&api_key=YOUR_KEY&artist=Radiohead&format=json"`
+
+**Clear corrupt cache:**
+```bash
+# Docker
+docker-compose exec plex-playlists node dist/cli.js cache clear --all
+
+# CLI
+plex-playlists cache clear --all
+```
+
+### Database Errors
+
+**"Database is locked":**
+- Only one process accessing database at a time
+- Stop duplicate instances
+
+**"Database disk image is malformed":**
+```bash
+# Docker
+docker-compose down
+docker volume rm plex-playlists_data
+docker-compose up -d
+
+# CLI
+rm ./data/plex-playlists.db*
+npm run build && npm start
+```
+
+### Large Library Performance
+
+**Symptoms:** Slow generation (>60 seconds), timeouts
+
+**Optimizations in `.env`:**
+```bash
+FALLBACK_LIMIT=100       # Reduce Plex API load
+HISTORY_DAYS=21          # Analyze less history
+CACHE_WARM_CONCURRENCY=5 # More conservative
+```
+
+### Web UI Not Loading
+
+**Check port:**
+```bash
+# Docker
+docker-compose ps  # Verify port 8687 mapped
+
+# CLI
+lsof -i :8687  # Check if port in use
+```
+
+**Change port:**
+```bash
+WEB_UI_PORT=9090
+```
+
+**Verify web UI enabled:**
+```bash
+WEB_UI_ENABLED=true
 ```
 
 ---
 
-## Performance Optimization
+## Backup & Recovery
 
-### Large Libraries (>10,000 tracks)
+### Backup Database
 
-**Symptoms:**
-- Slow playlist generation (>60 seconds)
-- Plex API timeouts
-
-**Optimizations:**
+**Docker:**
 ```bash
-# Reduce fallback candidate fetch size
-FALLBACK_LIMIT=100         # Default: 200
-
-# Reduce history window
-HISTORY_DAYS=14            # Default: 30
-
-# Pre-warm genre cache during off-peak hours
-# Add to crontab: warm cache at 2 AM daily
-0 2 * * * docker-compose exec plex-playlists node dist/cli.js cache warm --concurrency=5
+docker cp plex-playlists:/data/plex-playlists.db ./backup-$(date +%Y%m%d).db
 ```
 
-### Database Growth
-
-**Check Database Size:**
+**CLI:**
 ```bash
-du -h ./data/plex-playlists.db
+cp ./data/plex-playlists.db ./backup-$(date +%Y%m%d).db
 ```
 
-**Typical Sizes:**
-- 1 month of operation: ~500 KB - 2 MB
-- 1 year of operation: ~5 MB - 20 MB
+### Restore Database
 
-**Cleanup Old Job Runs:**
-```sql
--- Delete job runs older than 90 days
-DELETE FROM job_runs
-WHERE started_at < (strftime('%s', 'now', '-90 days') * 1000);
+**Docker:**
+```bash
+docker-compose down
+docker cp ./backup-20250110.db plex-playlists:/data/plex-playlists.db
+docker-compose up -d
+```
 
--- Vacuum to reclaim space
-VACUUM;
+**CLI:**
+```bash
+cp ./backup-20250110.db ./data/plex-playlists.db
 ```
 
 ---
 
-## Logs & Debugging
+## Diagnostic Commands
+
+### View Job History
+
+**Docker:**
+```bash
+docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db \
+  "SELECT window, status, datetime(started_at/1000, 'unixepoch')
+   FROM job_runs ORDER BY started_at DESC LIMIT 10;"
+```
+
+**CLI:**
+```bash
+sqlite3 ./data/plex-playlists.db \
+  "SELECT window, status, datetime(started_at/1000, 'unixepoch')
+   FROM job_runs ORDER BY started_at DESC LIMIT 10;"
+```
+
+### Check Cache Stats
+
+**Docker:**
+```bash
+docker-compose exec plex-playlists node dist/cli.js cache stats
+```
+
+**CLI:**
+```bash
+plex-playlists cache stats
+```
 
 ### View Live Logs
 
+**Docker:**
 ```bash
-# Follow all logs
-docker-compose logs -f plex-playlists
-
-# Filter for errors only
-docker-compose logs plex-playlists | grep ERROR
-
-# Filter by window
-docker-compose logs plex-playlists | grep "window.*morning"
+docker-compose logs -f
 ```
 
-### Log Levels
-
-Controlled by Pino logger (structured JSON logs).
-
-**Change log level:**
-```yaml
-# docker-compose.yml
-environment:
-  - LOG_LEVEL=debug  # Options: debug, info, warn, error
-```
-
-**Example debug output:**
-```json
-{
-  "level": 20,
-  "time": 1704772800000,
-  "window": "morning",
-  "historyEntries": 342,
-  "uniqueTracks": 215,
-  "msg": "history retrieved and aggregated"
-}
-```
-
-### Export Logs for Analysis
-
+**CLI:**
 ```bash
-# Export last 1000 lines to file
-docker-compose logs --tail=1000 plex-playlists > plex-playlists-debug.log
-
-# Export with timestamps
-docker-compose logs -t plex-playlists > plex-playlists-timestamped.log
+tail -f /var/log/plex-playlists.log
 ```
 
 ---
 
 ## Getting Help
 
-If issues persist after trying these troubleshooting steps:
+If issues persist:
 
-1. **Check Logs:** Run with `LOG_LEVEL=debug` to get detailed output
-2. **Verify Setup:** Test each component individually:
+1. **Check logs** with `LOG_LEVEL=debug`
+2. **Test components individually:**
    - Plex connection: `curl http://localhost:32400/identity?X-Plex-Token=TOKEN`
-   - Database access: `sqlite3 ./data/plex-playlists.db "SELECT COUNT(*) FROM playlists;"`
-   - Spotify API: `npx tsx test-spotify.ts` (if configured)
-   - Last.fm API: `npx tsx test-lastfm.ts` (if configured)
-
-3. **Check Job History:** Review `job_runs` table for patterns
-4. **Review Configuration:** Ensure `.env` file matches `.env.example` structure
-5. **GitHub Issues:** Search existing issues or open a new one with:
-   - Docker/Node version
-   - Relevant logs (redact auth tokens!)
-   - Configuration (without secrets)
+   - Database: `sqlite3 ./data/plex-playlists.db "SELECT COUNT(*) FROM playlists;"`
+3. **Review configuration:** [Configuration Reference](configuration-reference.md)
+4. **Search issues:** [GitHub Issues](https://github.com/aceofaces/plex-playlists/issues)
+5. **Open new issue** with:
+   - Deployment method (Docker/CLI)
+   - Relevant logs (redact tokens!)
    - Steps to reproduce
 
 ---
 
-## Advanced Recovery
+## Related Documentation
 
-### Force Playlist Regeneration
-
-```bash
-# Delete specific playlist from Plex and database, then regenerate
-docker-compose exec plex-playlists node -e "
-const db = require('better-sqlite3')('/data/plex-playlists.db');
-db.prepare('DELETE FROM playlists WHERE window = ?').run('morning');
-db.prepare('DELETE FROM playlist_tracks WHERE playlist_id NOT IN (SELECT id FROM playlists)').run();
-"
-
-# Regenerate
-docker-compose exec plex-playlists node dist/cli.js run morning
-```
-
-### Reset All Playlists
-
-```bash
-# Nuclear option: clear all playlist data, keep job history
-docker-compose exec plex-playlists sqlite3 /data/plex-playlists.db <<EOF
-DELETE FROM playlist_tracks;
-DELETE FROM playlists;
-VACUUM;
-EOF
-
-# Regenerate all windows
-docker-compose exec plex-playlists node dist/cli.js run morning
-docker-compose exec plex-playlists node dist/cli.js run afternoon
-docker-compose exec plex-playlists node dist/cli.js run evening
-```
-
----
-
-## Reference
-
-- [README.md](./README.md) - General usage and setup
-- [IMPORTING.md](./IMPORTING.md) - CSV import troubleshooting
-- [LASTFM_SETUP.md](./LASTFM_SETUP.md) - Last.fm API issues
-- [SPOTIFY_SETUP.md](./SPOTIFY_SETUP.md) - Spotify API issues
-- [Plex API Documentation](https://www.plexopedia.com/plex-media-server/api/) - Unofficial Plex API reference
+- [Docker Guide](docker-guide.md) - Docker-specific setup
+- [CLI Guide](cli-guide.md) - CLI installation and usage
+- [Configuration Reference](configuration-reference.md) - All environment variables
+- [Algorithm Explained](algorithm-explained.md) - How playlists are generated

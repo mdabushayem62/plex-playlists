@@ -4,10 +4,11 @@ import { getGenreEnrichmentService } from '../genre-enrichment.js';
 import { getDb } from '../db/index.js';
 import { genreCache, albumGenreCache } from '../db/schema.js';
 import { logger } from '../logger.js';
-import { lt, sql } from 'drizzle-orm';
+import { lt, and, or, sql } from 'drizzle-orm';
 import { recordJobStart, recordJobCompletion } from '../db/repository.js';
 import { formatUserError } from '../utils/error-formatter.js';
 import { progressTracker } from '../utils/progress-tracker.js';
+import { CACHE_REFRESH_CONFIG } from './cache-utils.js';
 
 // Type for Plex metadata tag (Genre, Style, Mood)
 interface PlexTag {
@@ -147,39 +148,124 @@ export async function clearAllCache(): Promise<number> {
 }
 
 /**
- * Refresh cache entries that are expiring soon
- * @param daysAhead Number of days to look ahead for expiring entries (default: 7)
+ * Refresh cache entries using usage-based prioritization (Phase 3)
+ *
+ * Strategy:
+ * - Hot tier (used in last 30 days): Refresh if cache age > 60 days
+ * - Warm tier (used 30-180 days ago): Refresh if cache age > 120 days
+ * - Cold tier (unused >180 days or never): Refresh if cache age > 365 days
+ *
+ * @param batchLimit Maximum number of entries to refresh (default: HOURLY_REFRESH_LIMIT)
  */
 export async function refreshExpiringCache(options: {
-  daysAhead?: number;
+  daysAhead?: number;  // Deprecated, kept for backward compatibility
   concurrency?: number;
+  batchLimit?: number;
   onProgress?: (completed: number, total: number) => void;
-} = {}): Promise<{ total: number; refreshed: number; errors: string[] }> {
-  const { daysAhead = 7, concurrency = 10, onProgress } = options;
+} = {}): Promise<{ total: number; refreshed: number; errors: string[]; tierBreakdown?: Record<string, number> }> {
+  const { concurrency = 10, batchLimit, onProgress } = options;
   const jobId = await recordJobStart('cache-refresh');
 
   try {
     const db = getDb();
-    const now = new Date();
-    const futureDate = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
+    const now = Date.now();
 
-    logger.info({ daysAhead, concurrency }, 'refreshing expiring cache entries');
+    const { HOT, WARM, COLD } = CACHE_REFRESH_CONFIG.USAGE_TIERS;
 
-    // Find entries expiring within the specified timeframe
-    const expiring = await db
-      .select({ artistName: genreCache.artistName })
+    // Calculate threshold timestamps
+    const hotUsedThreshold = now - (HOT.LAST_USED_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
+    const warmUsedThreshold = now - (WARM.LAST_USED_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
+    const hotAgeThreshold = now - (HOT.REFRESH_AGE_DAYS * 24 * 60 * 60 * 1000);
+    const warmAgeThreshold = now - (WARM.REFRESH_AGE_DAYS * 24 * 60 * 60 * 1000);
+    const coldAgeThreshold = now - (COLD.REFRESH_AGE_DAYS * 24 * 60 * 60 * 1000);
+
+    logger.info({ concurrency, batchLimit }, 'refreshing cache with usage-based prioritization');
+
+    // Query with usage-based prioritization
+    // Priority tiers (lower number = higher priority):
+    // 1 = Hot: recently used, needs refresh
+    // 2 = Warm: occasionally used, needs refresh
+    // 3 = Cold: rarely/never used, very old
+    const candidates = await db
+      .select({
+        artistName: genreCache.artistName,
+        cachedAt: genreCache.cachedAt,
+        lastUsedAt: genreCache.lastUsedAt,
+        priority: sql<number>`
+          CASE
+            WHEN ${genreCache.lastUsedAt} >= ${hotUsedThreshold} AND ${genreCache.cachedAt} < ${hotAgeThreshold}
+              THEN 1
+            WHEN ${genreCache.lastUsedAt} >= ${warmUsedThreshold} AND ${genreCache.cachedAt} < ${warmAgeThreshold}
+              THEN 2
+            WHEN (${genreCache.lastUsedAt} IS NULL OR ${genreCache.lastUsedAt} < ${warmUsedThreshold}) AND ${genreCache.cachedAt} < ${coldAgeThreshold}
+              THEN 3
+            ELSE 999
+          END
+        `.as('priority')
+      })
       .from(genreCache)
       .where(
-        sql`${genreCache.expiresAt} IS NOT NULL AND ${genreCache.expiresAt} > ${now} AND ${genreCache.expiresAt} <= ${futureDate}`
+        or(
+          // Hot tier: used recently, cache is old
+          and(
+            sql`${genreCache.lastUsedAt} >= ${hotUsedThreshold}`,
+            sql`${genreCache.cachedAt} < ${hotAgeThreshold}`
+          ),
+          // Warm tier: used occasionally, cache is old
+          and(
+            sql`${genreCache.lastUsedAt} >= ${warmUsedThreshold}`,
+            sql`${genreCache.lastUsedAt} < ${hotUsedThreshold}`,
+            sql`${genreCache.cachedAt} < ${warmAgeThreshold}`
+          ),
+          // Cold tier: rarely/never used, cache is very old
+          and(
+            or(
+              sql`${genreCache.lastUsedAt} IS NULL`,
+              sql`${genreCache.lastUsedAt} < ${warmUsedThreshold}`
+            ),
+            sql`${genreCache.cachedAt} < ${coldAgeThreshold}`
+          )
+        )
+      )
+      .orderBy(sql`priority ASC, ${genreCache.cachedAt} ASC`); // Priority first, then oldest within tier
+
+    // Track tier breakdown for observability
+    const tierBreakdown: Record<string, number> = {
+      hot: 0,
+      warm: 0,
+      cold: 0
+    };
+
+    for (const candidate of candidates) {
+      if (candidate.priority === 1) tierBreakdown.hot++;
+      else if (candidate.priority === 2) tierBreakdown.warm++;
+      else if (candidate.priority === 3) tierBreakdown.cold++;
+    }
+
+    let artistNames = candidates.map(row => row.artistName);
+
+    logger.info(
+      {
+        totalFound: artistNames.length,
+        tierBreakdown,
+        batchLimit: batchLimit || CACHE_REFRESH_CONFIG.HOURLY_REFRESH_LIMIT
+      },
+      'found cache entries needing refresh'
+    );
+
+    // Apply batch limit if specified (for distributed refreshes)
+    const effectiveBatchLimit = batchLimit || CACHE_REFRESH_CONFIG.HOURLY_REFRESH_LIMIT;
+    if (artistNames.length > effectiveBatchLimit) {
+      logger.info(
+        { found: artistNames.length, limit: effectiveBatchLimit },
+        'applying batch limit - prioritizing hot and warm tiers'
       );
-
-    const artistNames = expiring.map(row => row.artistName);
-
-    logger.info({ total: artistNames.length }, 'found expiring cache entries');
+      artistNames = artistNames.slice(0, effectiveBatchLimit);
+    }
 
     if (artistNames.length === 0) {
       if (jobId) await recordJobCompletion(jobId, 'success');
-      return { total: 0, refreshed: 0, errors: [] };
+      return { total: 0, refreshed: 0, errors: [], tierBreakdown };
     }
 
     // Refresh these artists (this will update their expiresAt date)
@@ -220,7 +306,8 @@ export async function refreshExpiringCache(options: {
       return {
         total: artistNames.length,
         refreshed: artistNames.length,
-        errors
+        errors,
+        tierBreakdown
       };
     } catch (error) {
       const errorMsg = formatUserError(error, 'refreshing genre cache');
@@ -235,7 +322,8 @@ export async function refreshExpiringCache(options: {
       return {
         total: artistNames.length,
         refreshed: 0,
-        errors
+        errors,
+        tierBreakdown
       };
     }
   } catch (error) {
@@ -302,12 +390,18 @@ export async function warmCache(options: {
   onProgress?: (completed: number, total: number) => void;
   skipCached?: boolean;
   jobId?: number; // Optional job ID to use for tracking (if not provided, creates new one)
+  signal?: AbortSignal; // Optional abort signal for cancellation
 } = {}): Promise<{ totalArtists: number; cached: number; errors: string[] }> {
-  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId } = options;
+  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId, signal } = options;
   const jobId = providedJobId ?? await recordJobStart('cache-warm');
 
   try {
     logger.info({ concurrency, dryRun, skipCached }, 'starting artist cache warm');
+
+    // Check for cancellation before starting
+    if (signal?.aborted) {
+      throw new Error('Cache warming cancelled');
+    }
 
     // Fetch all artists from Plex
     const musicSection = await findMusicSection();
@@ -435,6 +529,11 @@ export async function warmCache(options: {
     enrichmentService.setPlexMoods(plexMoodMap);
 
     const errors: string[] = [];
+
+    // Check for cancellation before enrichment
+    if (signal?.aborted) {
+      throw new Error('Cache warming cancelled');
+    }
 
     // Start progress tracking with source tracking enabled
     if (jobId) {
@@ -580,12 +679,18 @@ export async function warmAlbumCache(options: {
   onProgress?: (completed: number, total: number) => void;
   skipCached?: boolean;
   jobId?: number; // Optional job ID to use for tracking (if not provided, creates new one)
+  signal?: AbortSignal; // Optional abort signal for cancellation
 } = {}): Promise<{ totalAlbums: number; cached: number; errors: string[] }> {
-  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId } = options;
+  const { concurrency = 10, dryRun = false, onProgress, skipCached = true, jobId: providedJobId, signal } = options;
   const jobId = providedJobId ?? await recordJobStart('album-cache-warm');
 
   try {
     logger.info({ concurrency, dryRun, skipCached }, 'starting album cache warm');
+
+    // Check for cancellation before starting
+    if (signal?.aborted) {
+      throw new Error('Album cache warming cancelled');
+    }
 
     // Fetch all artists from Plex (musicSection.all() returns artists, not albums)
     const musicSection = await findMusicSection();
@@ -749,6 +854,11 @@ export async function warmAlbumCache(options: {
     // Populate Plex album genres and moods in enrichment service
     enrichmentService.setPlexAlbumGenres(plexAlbumGenreMap);
     enrichmentService.setPlexAlbumMoods(plexAlbumMoodMap);
+
+    // Check for cancellation before caching
+    if (signal?.aborted) {
+      throw new Error('Album cache warming cancelled');
+    }
 
     logger.info({ totalAlbums: albumPairs.length }, 'metadata fetch complete, starting cache write');
 

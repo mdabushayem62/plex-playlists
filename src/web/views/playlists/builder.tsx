@@ -71,11 +71,38 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
           border-color: var(--pico-primary);
           background: linear-gradient(135deg, rgba(74, 143, 201, 0.05) 0%, rgba(74, 143, 201, 0.02) 100%);
         }
+        .recommendation-card {
+          background: var(--pico-card-background-color);
+          border: 1px solid var(--pico-muted-border-color);
+          border-radius: 0.5rem;
+          padding: 1rem;
+          transition: all 0.2s;
+        }
+        .recommendation-card:hover {
+          border-color: var(--pico-primary);
+          transform: translateY(-2px);
+        }
+        .category-badge {
+          display: inline-block;
+          padding: 0.25rem 0.5rem;
+          border-radius: 0.25rem;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+        .category-favorite { background: var(--pico-ins-color); color: white; }
+        .category-mood { background: var(--pico-primary); color: var(--pico-primary-inverse); }
+        .category-combo { background: var(--pico-contrast); color: var(--pico-background-color); }
+        .category-discovery { background: var(--pico-muted-color); color: white; }
         #builder-form {
           display: none;
         }
         #builder-form.active {
           display: block;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}</style>
 
@@ -98,9 +125,14 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
               Create custom playlists by combining genres and moods. Select up to 2 genres and 2 moods.
             </p>
           </div>
-          <button id="new-playlist-btn" onclick="toggleBuilder()" class="secondary">
-            ➕ Create Playlist
-          </button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button id="show-recommendations-btn" onclick="loadRecommendations()" class="outline">
+              💡 Get Recommendations
+            </button>
+            <button id="new-playlist-btn" onclick="toggleBuilder()" class="secondary">
+              ➕ Create Playlist
+            </button>
+          </div>
         </div>
 
         {/* Builder Form (Hidden by default) */}
@@ -198,6 +230,38 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
             </div>
           </form>
         </div>
+
+        {/* Recommendations Section */}
+        <section id="recommendations-section" style="margin-bottom: 3rem; display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div>
+              <h3 style="margin-bottom: 0.5rem;">💡 Recommended Playlists</h3>
+              <p style="color: var(--pico-muted-color); margin: 0; font-size: 0.875rem;">
+                Based on your listening history, ratings, and library analysis
+              </p>
+            </div>
+            <button id="refresh-recommendations-btn" onclick="loadRecommendations()" class="outline" style="font-size: 0.875rem; padding: 0.375rem 0.75rem;">
+              🔄 Refresh
+            </button>
+          </div>
+
+          <div id="recommendations-loading" style="text-align: center; padding: 2rem;">
+            <p style="color: var(--pico-muted-color);">
+              <span class="spinner" style="display: inline-block; width: 1rem; height: 1rem; border: 2px solid var(--pico-muted-color); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+              Analyzing your library...
+            </p>
+          </div>
+
+          <div id="recommendations-content" style="display: none;"></div>
+
+          <div id="recommendations-error" style="display: none;">
+            <div class="playlist-builder-card" style="border-color: var(--pico-del-color);">
+              <p style="color: var(--pico-del-color); margin: 0;">
+                Failed to load recommendations. Make sure you have enough cache data and listening history.
+              </p>
+            </div>
+          </div>
+        </section>
 
         {/* Existing Playlists */}
         <section>

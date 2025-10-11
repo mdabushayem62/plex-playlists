@@ -13,9 +13,12 @@ Build the ultimate self-hosted music playlist automation tool that rivals Spotif
 ### Core Features
 
 - [x] **Time-windowed daily playlists** - Three daily playlists (morning, afternoon, evening) based on listening patterns
+- [x] **Discovery playlist** - Weekly playlist surfacing forgotten gems from library (tracks not played in 90+ days)
+- [x] **Throwback playlist** - Weekly nostalgia playlist from 2-5 years ago (configurable lookback window)
 - [x] **Custom playlists** - Genre/mood combination playlists via web UI with database-backed configuration
 - [x] **Cross-playlist deduplication** - Prevents duplicate tracks across daily playlists
 - [x] **Sonic similarity expansion** - Uses Plex's audio analysis to expand playlists beyond listening history
+- [x] **Epsilon-greedy selection** - Balanced 85% exploitation (favorites) + 15% exploration (variety) with configurable rate
 - [x] **Multi-pass selection algorithm** - Progressive constraint relaxation (genre limits → artist limits → no constraints)
 - [x] **Configurable playlist size and artist limits** - Via `PLAYLIST_TARGET_SIZE` and `MAX_PER_ARTIST`
 
@@ -34,6 +37,18 @@ Build the ultimate self-hosted music playlist automation tool that rivals Spotif
 - [x] **Analytics dashboard** ("Nerd Lines") - Genre distribution, listening patterns, time-of-day heatmap, diversity metrics
 - [x] **Real-time job monitoring** - Progress tracking for cache warming and playlist generation
 - [x] **Custom playlist builder** - UI for creating genre/mood combination playlists
+
+### Background Job System
+
+- [x] **Background job queue** - In-process queue for non-blocking playlist generation and cache warming
+  - Job queue with concurrency control (max 2 simultaneous background jobs)
+  - Non-blocking enqueue (returns job ID immediately)
+  - Real-time progress updates via Server-Sent Events (SSE)
+  - Ability to cancel running jobs (individual or all)
+  - Job history with filtering and pagination
+  - Queue stats dashboard (pending, active, completed jobs)
+  - AbortSignal integration for graceful cancellation
+  - ETA calculation based on progress rate
 
 ### Developer Experience
 
@@ -75,14 +90,17 @@ Nothing currently in active development.
   - Show track count and duration
   - Example: `"🎨 Chill Electronic • 50 tracks • Updated 2025-10-10 17:30 • Genres: electronic, ambient • Moods: chill, mellow"`
 
-#### Background Job System
-- [ ] **Move playlist generation to background workers** - Non-blocking playlist generation
-  - Replace synchronous generation with job queue
-  - Real-time progress updates via WebSocket or SSE
-  - Ability to cancel running jobs
-  - Job history and retry mechanism
-  - Multiple concurrent playlist generation
-- [ ] **Job queue dashboard** - View pending/running/completed jobs with cancel/retry actions
+#### Background Job System Enhancements
+- [ ] **Automatic retry mechanism** - Retry failed jobs with exponential backoff
+  - Configurable max retries per job type
+  - Automatic retry on transient failures (network errors, rate limits)
+  - Manual retry from job history UI
+- [ ] **Job priorities** - Priority queue for different job types
+  - Manual jobs > Scheduled jobs > Refresh jobs
+  - Weighted fair queuing to prevent starvation
+- [ ] **Per-job-type concurrency limits** - Independent concurrency for playlist vs cache jobs
+  - Allow playlists and cache warming to run simultaneously
+  - Prevent one job type from monopolizing the queue
 
 ### Medium Priority
 
@@ -104,10 +122,9 @@ Nothing currently in active development.
   - Spotify playlist export (reverse sync)
   - CSV export with metadata
 - [ ] **Smart playlist templates** - Pre-configured playlist templates
-  - "Discover Weekly" - High-rated but rarely played tracks
-  - "Throwback" - Older tracks from listening history
   - "Deep Cuts" - Album tracks with low play counts
   - "Genre Explorer" - Expand into adjacent genres
+  - "Seasonal Mixes" - Mood/energy shifts by season
 
 #### Advanced Filtering
 - [ ] **Advanced mood filtering** - Energy level and tempo-based filtering using Plex audio analysis

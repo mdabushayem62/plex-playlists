@@ -29,10 +29,16 @@ export type SettingKey =
   | 'max_per_artist'
   | 'history_days'
   | 'fallback_limit'
+  | 'exploration_rate'
+  | 'exclusion_days'
+  | 'discovery_days'
   // Scheduling
   | 'daily_playlists_cron'
-  // Playlist Config (JSON)
-  | 'playlists_config';
+  | 'discovery_cron'
+  | 'throwback_cron'
+  | 'custom_playlists_cron'
+  | 'cache_warm_cron'
+  | 'cache_refresh_cron';
 
 /**
  * Get a setting value from database
@@ -125,12 +131,17 @@ export async function getEffectiveConfig() {
     maxPerArtist: getNumber('max_per_artist', APP_ENV.MAX_PER_ARTIST),
     historyDays: getNumber('history_days', APP_ENV.HISTORY_DAYS),
     fallbackLimit: getNumber('fallback_limit', APP_ENV.FALLBACK_LIMIT),
+    explorationRate: getNumber('exploration_rate', APP_ENV.EXPLORATION_RATE),
+    exclusionDays: getNumber('exclusion_days', APP_ENV.EXCLUSION_DAYS),
+    discoveryDays: getNumber('discovery_days', APP_ENV.DISCOVERY_DAYS),
 
     // Scheduling
     dailyPlaylistsCron: dbSettings.daily_playlists_cron || APP_ENV.DAILY_PLAYLISTS_CRON,
-
-    // Playlist Config
-    playlistsConfig: dbSettings.playlists_config || null
+    discoveryCron: dbSettings.discovery_cron || APP_ENV.DISCOVERY_CRON,
+    throwbackCron: dbSettings.throwback_cron || APP_ENV.THROWBACK_CRON,
+    customPlaylistsCron: dbSettings.custom_playlists_cron || APP_ENV.CUSTOM_PLAYLISTS_CRON,
+    cacheWarmCron: dbSettings.cache_warm_cron || APP_ENV.CACHE_WARM_CRON,
+    cacheRefreshCron: dbSettings.cache_refresh_cron || APP_ENV.CACHE_REFRESH_CRON
   };
 }
 
@@ -326,6 +337,45 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
         max: 1000
       }
     },
+    exploration_rate: {
+      key: 'exploration_rate',
+      value: effectiveConfig.explorationRate,
+      source: getSource('exploration_rate'),
+      type: 'number',
+      category: 'scoring',
+      description: 'Exploration rate for discovery (0.0-1.0, default: 0.15 = 15%)',
+      defaultValue: 0.15,
+      validation: {
+        min: 0.0,
+        max: 1.0
+      }
+    },
+    exclusion_days: {
+      key: 'exclusion_days',
+      value: effectiveConfig.exclusionDays,
+      source: getSource('exclusion_days'),
+      type: 'number',
+      category: 'scoring',
+      description: 'Days to exclude recently-recommended tracks from new playlists',
+      defaultValue: 7,
+      validation: {
+        min: 1,
+        max: 90
+      }
+    },
+    discovery_days: {
+      key: 'discovery_days',
+      value: effectiveConfig.discoveryDays,
+      source: getSource('discovery_days'),
+      type: 'number',
+      category: 'scoring',
+      description: 'Minimum days since last play for discovery playlist',
+      defaultValue: 90,
+      validation: {
+        min: 1,
+        max: 365
+      }
+    },
 
     // Scheduling
     daily_playlists_cron: {
@@ -336,6 +386,51 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
       category: 'scheduling',
       description: 'Daily playlists generation schedule (runs all three sequentially)',
       defaultValue: '0 5 * * *'
+    },
+    discovery_cron: {
+      key: 'discovery_cron',
+      value: effectiveConfig.discoveryCron,
+      source: getSource('discovery_cron'),
+      type: 'cron',
+      category: 'scheduling',
+      description: 'Discovery playlist schedule (weekly rediscovery of forgotten gems)',
+      defaultValue: '0 6 * * 1'
+    },
+    throwback_cron: {
+      key: 'throwback_cron',
+      value: effectiveConfig.throwbackCron,
+      source: getSource('throwback_cron'),
+      type: 'cron',
+      category: 'scheduling',
+      description: 'Throwback playlist schedule (nostalgic tracks from 2-5 years ago)',
+      defaultValue: '0 6 * * 6'
+    },
+    custom_playlists_cron: {
+      key: 'custom_playlists_cron',
+      value: effectiveConfig.customPlaylistsCron,
+      source: getSource('custom_playlists_cron'),
+      type: 'cron',
+      category: 'scheduling',
+      description: 'Custom playlists generation schedule (runs all enabled custom playlists)',
+      defaultValue: '0 6 * * 0'
+    },
+    cache_warm_cron: {
+      key: 'cache_warm_cron',
+      value: effectiveConfig.cacheWarmCron,
+      source: getSource('cache_warm_cron'),
+      type: 'cron',
+      category: 'scheduling',
+      description: 'Weekly full cache warming schedule (fetches genre data for uncached artists)',
+      defaultValue: '0 3 * * 0'
+    },
+    cache_refresh_cron: {
+      key: 'cache_refresh_cron',
+      value: effectiveConfig.cacheRefreshCron,
+      source: getSource('cache_refresh_cron'),
+      type: 'cron',
+      category: 'scheduling',
+      description: 'Cache refresh schedule (refreshes expiring cache entries)',
+      defaultValue: '0 * * * *'
     }
   };
 }
@@ -352,7 +447,10 @@ export function validateSetting(key: SettingKey, value: string): { valid: boolea
     playlist_target_size: v => !isNaN(v) && v >= 10 && v <= 500,
     max_per_artist: v => !isNaN(v) && v >= 1 && v <= 20,
     history_days: v => !isNaN(v) && v >= 1 && v <= 365,
-    fallback_limit: v => !isNaN(v) && v >= 50 && v <= 1000
+    fallback_limit: v => !isNaN(v) && v >= 50 && v <= 1000,
+    exploration_rate: v => !isNaN(v) && v >= 0.0 && v <= 1.0,
+    exclusion_days: v => !isNaN(v) && v >= 1 && v <= 90,
+    discovery_days: v => !isNaN(v) && v >= 1 && v <= 365
   };
 
   // URL validator

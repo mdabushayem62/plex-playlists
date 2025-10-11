@@ -58,7 +58,8 @@ export const genreCache = sqliteTable(
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }) // Optional TTL for cache invalidation
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }), // Optional TTL for cache invalidation (with jitter)
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }) // Track when this cache entry was last accessed for usage-based prioritization
   },
   table => ({
     artistNameIdx: uniqueIndex('genre_cache_artist_unique').on(table.artistName)
@@ -77,7 +78,8 @@ export const albumGenreCache = sqliteTable(
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }) // Optional TTL for cache invalidation
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }), // Optional TTL for cache invalidation (with jitter)
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }) // Track when this cache entry was last accessed for usage-based prioritization
   },
   table => ({
     albumIdx: uniqueIndex('album_genre_cache_album_unique').on(table.artistName, table.albumName)

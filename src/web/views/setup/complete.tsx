@@ -148,7 +148,7 @@ plex-playlists import /path/to/csv`}</code></pre>
 
         <p style="margin-top: 2rem; color: var(--pico-muted-color); font-size: 0.875rem;">
           Need help? Check the <a href="https://github.com/aceofaces/plex-playlists/blob/main/README.md" target="_blank">documentation</a> or
-          <a href="https://github.com/aceofaces/plex-playlists/blob/main/TROUBLESHOOTING.md" target="_blank">troubleshooting guide</a>.
+          <a href="https://github.com/aceofaces/plex-playlists/blob/main/docs/troubleshooting.md" target="_blank">troubleshooting guide</a>.
         </p>
       </div>
     </SetupLayout>

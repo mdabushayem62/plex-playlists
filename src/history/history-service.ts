@@ -1,20 +1,12 @@
 import { subDays } from 'date-fns';
 
+import type { HistoryMetadatum } from '@ctrl/plex';
+
 import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
 import { getPlexServer } from '../plex/client.js';
 import type { PlaylistWindow, TimeWindowDefinition } from '../windows.js';
 import { DEFAULT_TIME_WINDOWS } from '../windows.js';
-
-// Type definition from @ctrl/plex (not exported from main module)
-interface HistoryMetadatum {
-  type?: string;
-  key?: string;
-  parentKey?: string;
-  grandparentKey?: string;
-  viewedAt: number;
-  accountID: number;
-}
 
 // Cache for music library section ID (fetched once per session)
 let musicLibrarySectionId: string | null = null;
@@ -66,12 +58,8 @@ const isWithinTimeWindow = (date: Date, windowDef: TimeWindowDefinition): boolea
 };
 
 const extractRatingKey = (metadata: HistoryMetadatum): string | null => {
-  const key = metadata.key ?? metadata.parentKey ?? metadata.grandparentKey;
-  if (!key) {
-    return null;
-  }
-  const match = key.match(/\/library\/metadata\/(\d+)/);
-  return match?.[1] ?? null;
+  // Use ratingKey directly from the updated @ctrl/plex types
+  return metadata.ratingKey || null;
 };
 
 const toDate = (viewedAt: number): Date => {
@@ -100,39 +88,8 @@ export const fetchHistoryForWindow = async (
     'fetching history slice'
   );
 
-  // Fetch history with library section filter
-  // NOTE: Using raw query instead of server.history() because the @ctrl/plex library
-  // doesn't properly pass the librarySectionId parameter to the API
-  let history: HistoryMetadatum[] = [];
-
-  if (librarySectionId) {
-    try {
-      const mindateTimestamp = Math.floor(mindate.getTime() / 1000);
-      const historyPath = `/status/sessions/history/all?mindate=${mindateTimestamp}&librarySectionID=${librarySectionId}&X-Plex-Container-Size=${maxresults}&X-Plex-Container-Start=0`;
-
-      const rawResponse = await server.query<{ MediaContainer: { Metadata: HistoryMetadatum[]; totalSize?: number } }>(historyPath, 'get');
-      const mediaContainer = rawResponse?.MediaContainer;
-
-      if (mediaContainer && Array.isArray(mediaContainer.Metadata)) {
-        history = mediaContainer.Metadata;
-      }
-
-      logger.debug(
-        {
-          totalSize: mediaContainer?.totalSize,
-          returnedSize: history.length
-        },
-        'fetched history via raw API (workaround for @ctrl/plex bug)'
-      );
-    } catch (error) {
-      logger.error({ error }, 'failed to fetch history via raw API, falling back to standard method');
-      // Fallback to standard method if raw query fails
-      history = await server.history(maxresults, mindate);
-    }
-  } else {
-    // No library section ID available, use standard method
-    history = await server.history(maxresults, mindate);
-  }
+  // Fetch history with library section filter using fixed @ctrl/plex method
+  const history = await server.history(maxresults, mindate, undefined, undefined, librarySectionId ?? undefined);
 
   if (!Array.isArray(history)) {
     logger.warn(
