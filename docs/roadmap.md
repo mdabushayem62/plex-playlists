@@ -163,37 +163,40 @@ Nothing currently in active development.
 
 ## Upstream Library Issues (@ctrl/plex)
 
-These are limitations in the `@ctrl/plex` library that we're working around. Consider contributing PRs upstream:
+These are limitations in the `@ctrl/plex` library that we're working around. Some issues have been submitted upstream, others are deferred to avoid overwhelming the maintainer.
 
-### Critical Bugs
-- [ ] **server.history() ignores librarySectionId parameter** - [Issue to be created]
-  - **Impact**: History queries return ALL media types (movies, TV, music) instead of filtering to requested library section
-  - **Workaround**: Direct API query to `/status/sessions/history/all?librarySectionID=X` (src/history/history-service.ts:103-135)
-  - **Evidence**: Raw API works correctly when passing `librarySectionID` parameter
-  - **Upstream PR**: Should fix parameter passing in PlexServer.history() method
+### Submitted Upstream ✅
+- [x] **server.history() timestamp bug** - [PR #34](https://github.com/scttcper/plex/pull/34) ⏳ Awaiting review
+  - **Issue**: `mindate` parameter passed milliseconds instead of seconds, causing filter to be ignored
+  - **Fix**: Convert timestamp to Unix seconds format
+  - **Bonus**: Added missing `ratingKey`, `historyKey`, and `librarySectionID` fields to TypeScript types
+  - **Impact**: All history filtering (including `librarySectionId`) now works correctly
+  - **Workaround removed**: Can remove direct API query once merged (src/history/history-service.ts:103-135)
 
-### Missing Features
-- [ ] **No audio playlist creation support** - [Issue to be created]
+- [x] **No audio playlist creation support** - [Issue #35](https://github.com/scttcper/plex/issues/35) ⏳ Awaiting response
   - **Impact**: Cannot use library methods to create/manage audio playlists
   - **Workaround**: Direct API POST to `/playlists?type=audio&...` (src/plex/playlists.ts:21-51)
-  - **Upstream PR**: Add AudioPlaylist class and createAudioPlaylist() method to PlexServer
+  - **Requested**: Add `Track`, `Album`, `Artist` support to `Playlist.create()` and `addItems()`
 
-- [ ] **No playlist update/summary methods** - [Issue to be created]
+### Deferred (To Avoid Overwhelming Maintainer)
+
+These are valid issues but we're holding off on submitting them until the current PR/issue are addressed:
+
+- [ ] **No playlist update/summary methods**
   - **Impact**: Cannot update playlist title, description, or other metadata
   - **Workaround**: Direct API PUT to `/playlists/{ratingKey}?title=...&summary=...` (src/plex/playlists.ts:53-71)
-  - **Upstream PR**: Add updatePlaylist() method to Playlist class
+  - **Future PR**: Add `updatePlaylist()` method to Playlist class
 
-### Performance Issues
-- [ ] **Default timeout too short for large libraries** - [Issue to be created]
+- [ ] **Default timeout too short for large libraries**
   - **Impact**: Requests timeout when fetching thousands of tracks from large music libraries
   - **Workaround**: Override timeout to 120000ms (2 minutes) in PlexServer constructor (src/plex/client.ts:21)
   - **Default**: 30000ms (30 seconds)
-  - **Upstream PR**: Increase default timeout to 60-120 seconds, or add per-method timeout overrides
+  - **Future PR**: Increase default timeout to 60-120 seconds, or add per-method timeout overrides
 
-### Documentation Gaps
 - [ ] **History API pagination behavior undocumented**
   - Container-based pagination (`X-Plex-Container-Size`, `X-Plex-Container-Start`) not explained
   - MediaContainer response structure not typed
+  - **Future PR**: Add JSDoc comments and type definitions
 
 ---
 
