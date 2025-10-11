@@ -25,7 +25,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@ctrl/plex": "^3.9.2",
+    "@ctrl/plex": "github:aceofaces/plex#combined-fixes",
     "@kitajs/html": "^4.2.10",
     "better-sqlite3": "^11.8.1",
     "chart.js": "^4.5.0",
