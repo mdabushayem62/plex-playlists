@@ -296,46 +296,15 @@ export function ActionsPage(props: ActionsPageProps): JSX.Element {
           </details>
         </section>
 
-        {/* Recent Job History */}
-        <section>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="margin: 0;">Recent Job History</h3>
-            <a href="/actions/history" style="font-size: 0.875rem;">View Full History →</a>
-          </div>
-          {recentJobs.length === 0 ? (
-            <p style="color: var(--pico-muted-color);">No job history yet.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Window</th>
-                  <th>Status</th>
-                  <th>Started</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentJobs.map(job => {
-                  const duration = job.finishedAt && job.startedAt
-                    ? Math.round((new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)
-                    : null;
-                  return (
-                    <tr>
-                      <td>{job.window}</td>
-                      <td>
-                        <span class={`status-badge status-${job.status}`}>
-                          {job.status}
-                        </span>
-                      </td>
-                      <td>{timeAgo(job.startedAt)}</td>
-                      <td>{duration ? duration + 's' : job.status === 'running' ? '...' : '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </section>
+        {/* Job History Link */}
+        {activeJobs.length === 0 && (
+          <section style="text-align: center; background: var(--pico-card-background-color); padding: 1.5rem; border-radius: 0.5rem;">
+            <p style="color: var(--pico-muted-color); margin-bottom: 0.75rem;">
+              No active jobs running. All operations complete.
+            </p>
+            <a href="/actions/history" role="button" class="secondary">View Job History</a>
+          </section>
+        )}
       </div>
 
       {/* Load shared job monitoring module and actions.js */}

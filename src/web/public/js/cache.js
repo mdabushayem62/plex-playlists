@@ -72,7 +72,109 @@ async function confirmClearAll(totalCount) {
   }
 }
 
+/**
+ * Sync AudioMuse features with progress tracking
+ */
+async function syncAudioMuse() {
+  const elements = {
+    button: document.getElementById('syncAudioMuseBtn'),
+    progressContainer: document.getElementById('audiomuse-sync-progress'),
+    progressBar: document.getElementById('audiomuse-sync-progress-bar'),
+    progressPercent: document.getElementById('audiomuse-sync-progress-percent'),
+    progressMessage: document.getElementById('audiomuse-sync-progress-message'),
+    progressEta: document.getElementById('audiomuse-sync-progress-eta')
+  };
+
+  const btn = elements.button;
+  const status = document.getElementById('action-status');
+  const originalText = btn.innerHTML;
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Starting...';
+  elements.progressContainer.style.display = 'block';
+
+  try {
+    // Start the sync
+    const response = await fetch('/actions/audiomuse/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, forceResync: false })
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start sync');
+    }
+
+    // Monitor progress via SSE
+    const jobId = data.jobId;
+    let progressPercent = 0;
+
+    const eventSource = new EventSource(`/actions/jobs/${jobId}/stream`);
+
+    eventSource.onmessage = (event) => {
+      const job = JSON.parse(event.data);
+
+      if (job.progress) {
+        progressPercent = job.progress.percent || 0;
+        elements.progressBar.value = progressPercent;
+        elements.progressPercent.textContent = Math.round(progressPercent) + '%';
+        elements.progressMessage.textContent = job.progress.message || 'Syncing...';
+        if (job.progress.eta) {
+          elements.progressEta.textContent = 'ETA: ' + job.progress.eta;
+        }
+      }
+
+      if (job.status === 'success') {
+        btn.innerHTML = '✓ Synced';
+        status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ AudioMuse sync complete! Reloading...</p>';
+        eventSource.close();
+        setTimeout(() => window.location.reload(), 1500);
+      } else if (job.status === 'failed') {
+        btn.innerHTML = '✗ Failed';
+        btn.disabled = false;
+        status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+        elements.progressContainer.style.display = 'none';
+        eventSource.close();
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          status.innerHTML = '';
+        }, 5000);
+      }
+    };
+
+    eventSource.onerror = () => {
+      // Connection lost - check final status
+      fetch(`/actions/jobs/${jobId}`)
+        .then(res => res.json())
+        .then(job => {
+          if (job.status === 'success') {
+            btn.innerHTML = '✓ Synced';
+            status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ AudioMuse sync complete! Reloading...</p>';
+            setTimeout(() => window.location.reload(), 1500);
+          } else if (job.status === 'failed') {
+            btn.innerHTML = '✗ Failed';
+            btn.disabled = false;
+            status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+            elements.progressContainer.style.display = 'none';
+          }
+        });
+      eventSource.close();
+    };
+  } catch (err) {
+    btn.innerHTML = '✗ Failed';
+    btn.disabled = false;
+    status.innerHTML = '<p style="color: var(--pico-del-color);">✗ ' + err.message + '</p>';
+    elements.progressContainer.style.display = 'none';
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      status.innerHTML = '';
+    }, 3000);
+  }
+}
+
 // Expose functions globally
 window.warmCache = warmCache;
 window.warmAlbumCache = warmAlbumCache;
 window.confirmClearAll = confirmClearAll;
+window.syncAudioMuse = syncAudioMuse;
