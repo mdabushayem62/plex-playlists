@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { logger } from './logger.js';
 import type { PlaylistWindow } from './windows.js';
 import { warmCache, refreshExpiringCache } from './cache/cache-cli.js';
+import { refreshExpiredStats, syncRecentlyAdded } from './cache/track-cache-service.js';
 import { APP_ENV } from './config.js';
 import { CACHE_REFRESH_CONFIG } from './cache/cache-utils.js';
 
@@ -57,6 +58,28 @@ class Scheduler {
           })
             .then(result => logger.info({ ...result }, 'cache refresh complete'))
             .catch(error => logger.error({ err: error }, 'cache refresh failed'));
+        });
+        this.tasks.push(task);
+      }
+      // Track cache stats refresh job (daily refresh of expired 24h stats)
+      else if (window === 'track-cache-refresh') {
+        const task = cron.schedule(expression, () => {
+          logger.info('starting scheduled track cache stats refresh');
+          refreshExpiredStats({
+            limit: 10000 // Refresh up to 10k expired tracks per day
+          })
+            .then(() => logger.info('track cache stats refresh complete'))
+            .catch(error => logger.error({ err: error }, 'track cache stats refresh failed'));
+        });
+        this.tasks.push(task);
+      }
+      // Track cache recent sync job (daily sync of recently added tracks)
+      else if (window === 'track-cache-sync-recent') {
+        const task = cron.schedule(expression, () => {
+          logger.info('starting scheduled track cache recent sync');
+          syncRecentlyAdded(1) // Sync tracks added in last 24 hours
+            .then(() => logger.info('track cache recent sync complete'))
+            .catch(error => logger.error({ err: error }, 'track cache recent sync failed'));
         });
         this.tasks.push(task);
       }
