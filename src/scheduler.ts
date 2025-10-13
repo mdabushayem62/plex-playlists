@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { ScheduledTask } from 'node-cron';
 import { logger } from './logger.js';
 import type { PlaylistWindow } from './windows.js';
 import { warmCache, refreshExpiringCache } from './cache/cache-cli.js';
@@ -10,7 +10,7 @@ export type WindowJobRunner = (window: PlaylistWindow) => Promise<void>;
 export type BatchJobRunner = () => Promise<void>;
 
 class Scheduler {
-  private tasks: cron.ScheduledTask[] = [];
+  private tasks: ScheduledTask[] = [];
 
   constructor(
     private readonly runWindowJob: WindowJobRunner,
