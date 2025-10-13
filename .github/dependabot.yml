@@ -1,0 +1,95 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Maintain npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+
+    # Limit open PRs to avoid overwhelming the repo
+    open-pull-requests-limit: 5
+
+    # Group updates intelligently to reduce PR noise
+    groups:
+      # Development dependencies (testing, linting, types)
+      dev-dependencies:
+        patterns:
+          - "@types/*"
+          - "typescript"
+          - "vitest"
+          - "eslint*"
+          - "prettier"
+          - "@typescript-eslint/*"
+          - "tsup"
+          - "husky"
+          - "lint-staged"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Production dependencies (runtime)
+      production-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "typescript"
+          - "vitest"
+          - "eslint*"
+          - "prettier"
+          - "@typescript-eslint/*"
+          - "tsup"
+          - "husky"
+          - "lint-staged"
+        update-types:
+          - "patch"
+
+    # Conventional commit messages for consistency
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+
+    # Labels for easy filtering
+    labels:
+      - "dependencies"
+      - "automated"
+
+    # Assignees and reviewers (customize as needed)
+    # assignees:
+    #   - "your-username"
+    # reviewers:
+    #   - "your-username"
+
+    # Allow Dependabot to open PRs even if CI is failing
+    # (useful for fixing security vulnerabilities)
+    open-pull-requests-limit: 10
+
+    # Ignore specific dependencies if needed
+    # ignore:
+    #   - dependency-name: "example-package"
+    #     versions: ["1.x", "2.x"]
+
+  # Maintain GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
