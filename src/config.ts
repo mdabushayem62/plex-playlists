@@ -15,10 +15,19 @@ export const APP_ENV = cleanEnv(process.env, {
   LASTFM_API_KEY: str({ default: '', desc: 'Last.fm API key (optional, for genre enrichment)' }),
   SPOTIFY_CLIENT_ID: str({ default: '', desc: 'Spotify client ID (optional, for genre enrichment)' }),
   SPOTIFY_CLIENT_SECRET: str({ default: '', desc: 'Spotify client secret (optional, for genre enrichment)' }),
-  // Cache warming settings
-  CACHE_WARM_CONCURRENCY: num({ default: 10, desc: 'Max concurrent requests for cache warming (default: 10)' }),
+  // AudioMuse integration (optional - for audio features)
+  AUDIOMUSE_DB_HOST: str({ default: '', desc: 'AudioMuse PostgreSQL host (optional, for audio features)' }),
+  AUDIOMUSE_DB_PORT: num({ default: 5432, desc: 'AudioMuse PostgreSQL port (default: 5432)' }),
+  AUDIOMUSE_DB_NAME: str({ default: 'audiomuse', desc: 'AudioMuse PostgreSQL database name' }),
+  AUDIOMUSE_DB_USER: str({ default: '', desc: 'AudioMuse PostgreSQL username' }),
+  AUDIOMUSE_DB_PASSWORD: str({ default: '', desc: 'AudioMuse PostgreSQL password' }),
+  // Cache warming settings (artist/album metadata cache)
+  CACHE_WARM_CONCURRENCY: num({ default: 5, desc: 'Max concurrent requests for cache warming (default: 5, conservative for Last.fm rate limits)' }),
   CACHE_WARM_CRON: str({ default: '0 3 * * 0', desc: 'Schedule for weekly full cache warming (default: Sunday 3am)' }),
   CACHE_REFRESH_CRON: str({ default: '0 * * * *', desc: 'Schedule for hourly micro-refresh of expiring cache entries (default: every hour at :00)' }),
+  // Track cache refresh settings
+  TRACK_CACHE_REFRESH_CRON: str({ default: '0 2 * * *', desc: 'Schedule for daily track cache stats refresh (default: daily 2am)' }),
+  TRACK_CACHE_SYNC_RECENT_CRON: str({ default: '0 3 * * *', desc: 'Schedule for daily sync of recently added tracks (default: daily 3am)' }),
   // Daily time-based playlists
   DAILY_PLAYLISTS_CRON: str({ default: '0 5 * * *', desc: 'Schedule for batch generation of all daily playlists' }),
   // Discovery playlist (weekly rediscovery of forgotten gems)
