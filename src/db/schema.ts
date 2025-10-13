@@ -1,6 +1,6 @@
 import { integer, real, text } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import { sqliteTable, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const playlists = sqliteTable(
   'playlists',
@@ -47,14 +47,21 @@ export const jobRuns = sqliteTable('job_runs', {
   progressMessage: text('progress_message')
 });
 
-export const genreCache = sqliteTable(
-  'genre_cache',
+/**
+ * Artist cache for artist-level metadata enrichment
+ * Primary sources: Last.fm (aggressive, 5 concurrent), Spotify (slow backfill)
+ * TTL: 180 days
+ */
+export const artistCache = sqliteTable(
+  'artist_cache',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     artistName: text('artist_name').notNull(),
-    genres: text('genres').notNull(), // JSON array of genre/style strings (Genre + Style from Plex)
-    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (Mood from Plex)
-    source: text('source').notNull(), // 'spotify', 'lastfm', 'plex', 'embedded', or 'manual'
+    spotifyArtistId: text('spotify_artist_id'), // Spotify artist ID for future use
+    popularity: integer('popularity'), // Spotify popularity (0-100, updated from API)
+    genres: text('genres').notNull(), // JSON array of genre/style strings
+    moods: text('moods').notNull().default('[]'), // JSON array of mood strings
+    source: text('source').notNull(), // 'spotify', 'lastfm', 'plex', 'embedded', or 'manual' (comma-separated for multiple)
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
@@ -62,19 +69,26 @@ export const genreCache = sqliteTable(
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }) // Track when this cache entry was last accessed for usage-based prioritization
   },
   table => ({
-    artistNameIdx: uniqueIndex('genre_cache_artist_unique').on(table.artistName)
+    artistNameIdx: uniqueIndex('artist_cache_artist_unique').on(table.artistName),
+    spotifyIdIdx: index('artist_cache_spotify_id_idx').on(table.spotifyArtistId)
   })
 );
 
-export const albumGenreCache = sqliteTable(
-  'album_genre_cache',
+/**
+ * Album cache for album-specific metadata enrichment
+ * Primary sources: Last.fm (aggressive, 5 concurrent, best album-level granularity), Plex (always included)
+ * Spotify skipped for albums (usually empty, artist genres only)
+ * TTL: 90 days
+ */
+export const albumCache = sqliteTable(
+  'album_cache',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     artistName: text('artist_name').notNull(),
     albumName: text('album_name').notNull(),
-    genres: text('genres').notNull(), // JSON array of genre/style strings (Genre + Style from Plex)
-    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (Mood from Plex)
-    source: text('source').notNull(), // 'spotify', 'lastfm', 'plex', 'embedded', or 'manual'
+    genres: text('genres').notNull(), // JSON array of genre/style strings (album-specific from Last.fm!)
+    moods: text('moods').notNull().default('[]'), // JSON array of mood strings (from Plex)
+    source: text('source').notNull(), // 'lastfm', 'plex', or combination (comma-separated for multiple)
     cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
@@ -82,7 +96,7 @@ export const albumGenreCache = sqliteTable(
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }) // Track when this cache entry was last accessed for usage-based prioritization
   },
   table => ({
-    albumIdx: uniqueIndex('album_genre_cache_album_unique').on(table.artistName, table.albumName)
+    albumIdx: uniqueIndex('album_cache_album_unique').on(table.artistName, table.albumName)
   })
 );
 
@@ -155,6 +169,7 @@ export const customPlaylists = sqliteTable(
     cron: text('cron'), // Optional custom schedule (null = use default weekly)
     targetSize: integer('target_size').default(50), // Target playlist size
     description: text('description'), // Optional user description
+    scoringStrategy: text('scoring_strategy').notNull().default('quality'), // Scoring strategy: 'balanced', 'quality', 'discovery', 'throwback'
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(strftime('%s','now')*1000)`),
@@ -167,12 +182,133 @@ export const customPlaylists = sqliteTable(
   })
 );
 
+/**
+ * Track cache for full library metadata with tiered TTL refresh
+ * Enables quality-first playlists beyond recent listening history
+ *
+ * Design:
+ * - Tier 1: Static metadata (90-day TTL) - title, artist, album, duration, year, genres
+ * - Tier 2: Dynamic stats (24-hour TTL) - rating, viewCount, skipCount, lastViewedAt
+ * - Precomputed quality indicators for fast filtering
+ *
+ * Storage: ~10-15MB for 95k tracks (50 bytes static + 30 bytes dynamic + indexes)
+ * Refresh: Nightly incremental (expired entries), weekly full scan (new/deleted tracks)
+ */
+export const trackCache = sqliteTable(
+  'track_cache',
+  {
+    // Primary key
+    ratingKey: text('rating_key').primaryKey(),
+
+    // ========== TIER 1: Static Metadata (90-day TTL) ==========
+    title: text('title').notNull(),
+    artistName: text('artist_name').notNull(),
+    albumName: text('album_name'),
+    duration: integer('duration'), // milliseconds
+    year: integer('year'),
+    trackIndex: integer('track_index'), // track number on album
+    isrc: text('isrc'), // International Standard Recording Code (for accurate external service matching)
+
+    // Relationships for fast joins
+    parentRatingKey: text('parent_rating_key'), // album
+    grandparentRatingKey: text('grandparent_rating_key'), // artist
+
+    // Embedded metadata (JSON arrays)
+    genres: text('genres').notNull().default('[]'), // From Plex Genre tags
+    moods: text('moods').notNull().default('[]'), // From Plex Mood tags
+
+    // Static cache tracking
+    staticCachedAt: integer('static_cached_at', { mode: 'timestamp_ms' }).notNull(),
+    staticExpiresAt: integer('static_expires_at', { mode: 'timestamp_ms' }).notNull(),
+
+    // ========== TIER 2: Dynamic Stats (24-hour TTL) ==========
+    userRating: real('user_rating'), // 0-10 scale (Plex star rating)
+    viewCount: integer('view_count').default(0), // lifetime play count from Plex
+    skipCount: integer('skip_count').default(0), // lifetime skip count
+    lastViewedAt: integer('last_viewed_at', { mode: 'timestamp_ms' }), // most recent play
+
+    // Dynamic cache tracking
+    statsCachedAt: integer('stats_cached_at', { mode: 'timestamp_ms' }).notNull(),
+    statsExpiresAt: integer('stats_expires_at', { mode: 'timestamp_ms' }).notNull(),
+
+    // ========== Computed Quality Indicators ==========
+    // Precomputed for fast filtering (updated with stats)
+    qualityScore: real('quality_score'), // Precomputed: 0.6*rating + 0.3*playCount + 0.1*recency
+    isHighRated: integer('is_high_rated', { mode: 'boolean' }), // rating >= 8
+    isUnplayed: integer('is_unplayed', { mode: 'boolean' }), // viewCount === 0
+    isUnrated: integer('is_unrated', { mode: 'boolean' }), // userRating === null
+
+    // Last accessed (for usage-based refresh prioritization)
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' })
+  },
+  table => ({
+    // Indexes for common queries (non-unique since multiple tracks can share these values)
+    artistIdx: index('track_cache_artist_idx').on(table.artistName),
+    albumIdx: index('track_cache_album_idx').on(table.albumName),
+    ratingIdx: index('track_cache_rating_idx').on(table.userRating),
+    qualityIdx: index('track_cache_quality_idx').on(table.qualityScore),
+    lastViewedIdx: index('track_cache_last_viewed_idx').on(table.lastViewedAt),
+    highRatedIdx: index('track_cache_high_rated_idx').on(table.isHighRated),
+    unplayedIdx: index('track_cache_unplayed_idx').on(table.isUnplayed),
+    staticExpiresIdx: index('track_cache_static_expires_idx').on(table.staticExpiresAt),
+    statsExpiresIdx: index('track_cache_stats_expires_idx').on(table.statsExpiresAt)
+  })
+);
+
+/**
+ * Audio features table for AudioMuse integration
+ * Stores analyzed audio features for tracks (tempo, energy, moods, etc.)
+ * Mapped from AudioMuse PostgreSQL database to Plex tracks via metadata matching
+ */
+export const audioFeatures = sqliteTable(
+  'audio_features',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    ratingKey: text('rating_key').notNull(), // Plex track rating key
+    audiomuseItemId: text('audiomuse_item_id'), // AudioMuse track ID (for reference)
+    title: text('title').notNull(), // Track title (for verification)
+    artist: text('artist').notNull(), // Artist name (for verification)
+
+    // Musical attributes
+    tempo: real('tempo'), // BPM
+    key: text('key'), // Musical key (C, D, E, F, G, A, B)
+    scale: text('scale'), // major or minor
+    energy: real('energy'), // 0-1 intensity
+
+    // Mood and feature vectors (stored as JSON)
+    moodVector: text('mood_vector'), // JSON map of mood -> confidence
+    otherFeatures: text('other_features'), // JSON map of feature -> value
+
+    // Metadata
+    matchConfidence: text('match_confidence').default('exact'), // exact, fuzzy, none
+    source: text('source').default('audiomuse'),
+    cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`)
+  },
+  table => ({
+    ratingKeyIdx: uniqueIndex('audio_features_rating_key_unique').on(table.ratingKey),
+    audiomuseIdIdx: index('audio_features_audiomuse_id_idx').on(table.audiomuseItemId),
+    energyIdx: index('audio_features_energy_idx').on(table.energy),
+    tempoIdx: index('audio_features_tempo_idx').on(table.tempo),
+    artistIdx: index('audio_features_artist_idx').on(table.artist)
+  })
+);
+
 export type PlaylistRecord = typeof playlists.$inferSelect;
 export type PlaylistTrackRecord = typeof playlistTracks.$inferSelect;
 export type JobRunRecord = typeof jobRuns.$inferSelect;
-export type GenreCacheRecord = typeof genreCache.$inferSelect;
-export type AlbumGenreCacheRecord = typeof albumGenreCache.$inferSelect;
+export type ArtistCacheRecord = typeof artistCache.$inferSelect;
+export type AlbumCacheRecord = typeof albumCache.$inferSelect;
 export type SetupStateRecord = typeof setupState.$inferSelect;
 export type SettingRecord = typeof settings.$inferSelect;
 export type SettingsHistoryRecord = typeof settingsHistory.$inferSelect;
 export type CustomPlaylistRecord = typeof customPlaylists.$inferSelect;
+export type TrackCacheRecord = typeof trackCache.$inferSelect;
+export type AudioFeaturesRecord = typeof audioFeatures.$inferSelect;
+
+// Legacy aliases for backward compatibility (will be removed in future)
+/** @deprecated Use ArtistCacheRecord instead */
+export type GenreCacheRecord = ArtistCacheRecord;
+/** @deprecated Use AlbumCacheRecord instead */
+export type AlbumGenreCacheRecord = AlbumCacheRecord;

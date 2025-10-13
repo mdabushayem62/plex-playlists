@@ -4,7 +4,7 @@
 
 import { eq } from 'drizzle-orm';
 import type { DatabaseClient } from '../db/index.js';
-import type { genreCache as GenreCacheTable } from '../db/schema.js';
+import type { artistCache as GenreCacheTable } from '../db/schema.js';
 
 /**
  * Calculate a jittered TTL to prevent thundering herd problem
@@ -85,7 +85,7 @@ export const CACHE_REFRESH_CONFIG = {
  */
 export async function markCacheAsUsed(
   db: DatabaseClient,
-  genreCache: typeof GenreCacheTable,
+  artistCache: typeof GenreCacheTable,
   artistNames: string[]
 ): Promise<void> {
   if (artistNames.length === 0) return;
@@ -99,9 +99,9 @@ export async function markCacheAsUsed(
   for (const name of normalizedNames) {
     try {
       await db
-        .update(genreCache)
+        .update(artistCache)
         .set({ lastUsedAt: now })
-        .where(eq(genreCache.artistName, name));
+        .where(eq(artistCache.artistName, name));
     } catch (error) {
       // Silently fail - usage tracking is non-critical
       console.warn(`Failed to update last_used_at for ${name}:`, error);

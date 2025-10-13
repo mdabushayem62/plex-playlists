@@ -1,6 +1,6 @@
 /**
  * Cache Management Page - TSX version
- * Shows genre cache statistics and management tools
+ * Shows metadata cache statistics and management tools
  */
 
 import Html from '@kitajs/html';
@@ -24,6 +24,23 @@ interface CacheStats {
   newestEntry: Date | null;
 }
 
+export interface AudioMuseStats {
+  configured: boolean;
+  audioMuse?: {
+    totalTracks: number;
+    totalArtists: number;
+    tempo: { min: number; max: number; avg: number };
+    energy: { min: number; max: number; avg: number };
+  };
+  sync?: {
+    totalInAudioMuse: number;
+    totalSynced: number;
+    coveragePercent: number;
+  };
+  error?: string;
+  message?: string;
+}
+
 export interface CachePageProps {
   stats: {
     artists: CacheStats;
@@ -31,6 +48,7 @@ export interface CachePageProps {
   };
   artistEntries: CacheEntry[];
   albumEntries: CacheEntry[];
+  audioMuseStats: AudioMuseStats | null;
   setupComplete: boolean;
   page: string;
 }
@@ -78,7 +96,7 @@ function StatsCard({ title, stats }: { title: string; stats: CacheStats }): JSX.
 }
 
 export function CachePage(props: CachePageProps): JSX.Element {
-  const { stats, artistEntries, albumEntries, setupComplete, page } = props;
+  const { stats, artistEntries, albumEntries, audioMuseStats, setupComplete, page } = props;
 
   return (
     <Layout title="Cache Management" page={page} setupComplete={setupComplete}>
@@ -95,9 +113,9 @@ export function CachePage(props: CachePageProps): JSX.Element {
           </ol>
         </nav>
 
-        <h2>Genre Cache Management</h2>
+        <h2>Metadata Cache Management</h2>
         <p style="color: var(--pico-muted-color);">
-          The genre cache stores artist and album genre information fetched from Last.fm and Spotify APIs.
+          The metadata cache stores artist and album information (genres, moods, popularity) fetched from Last.fm and Spotify APIs.
         </p>
 
         {/* Artist Cache Statistics */}
@@ -106,9 +124,60 @@ export function CachePage(props: CachePageProps): JSX.Element {
         {/* Album Cache Statistics */}
         <StatsCard title="Album Cache" stats={stats.albums} />
 
+        {/* AudioMuse Integration */}
+        {audioMuseStats && (
+          <div style="margin-bottom: 2rem;">
+            <h3>AudioMuse Audio Features</h3>
+            {!audioMuseStats.configured ? (
+              <div style="background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem;">
+                <p style="color: var(--pico-muted-color); margin: 0;">
+                  {audioMuseStats.message || 'AudioMuse not configured'}
+                </p>
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                  Add <code>AUDIOMUSE_DB_HOST</code>, <code>AUDIOMUSE_DB_USER</code>, and <code>AUDIOMUSE_DB_PASSWORD</code> to .env
+                </p>
+              </div>
+            ) : audioMuseStats.error ? (
+              <div style="background: var(--pico-del-color); padding: 1rem; border-radius: 0.5rem;">
+                <p style="margin: 0;"><strong>Connection Error:</strong> {audioMuseStats.error}</p>
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--pico-muted-color);">
+                  {audioMuseStats.message}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                  <div class="stat-card">
+                    <h3>{audioMuseStats.sync?.totalSynced || 0}</h3>
+                    <p>Synced Tracks</p>
+                  </div>
+                  <div class="stat-card">
+                    <h3>{audioMuseStats.audioMuse?.totalTracks || 0}</h3>
+                    <p>AudioMuse Total</p>
+                  </div>
+                  <div class="stat-card">
+                    <h3>{audioMuseStats.sync?.coveragePercent?.toFixed(1) || 0}%</h3>
+                    <p>Coverage</p>
+                  </div>
+                  <div class="stat-card">
+                    <h3>{audioMuseStats.audioMuse?.totalArtists || 0}</h3>
+                    <p>Artists</p>
+                  </div>
+                </div>
+                {audioMuseStats.audioMuse && (
+                  <div style="margin-top: 1rem; color: var(--pico-muted-color); font-size: 0.875rem;">
+                    <div>Tempo: {audioMuseStats.audioMuse.tempo.min.toFixed(0)} - {audioMuseStats.audioMuse.tempo.max.toFixed(0)} BPM (avg: {audioMuseStats.audioMuse.tempo.avg.toFixed(0)})</div>
+                    <div>Energy: {(audioMuseStats.audioMuse.energy.min * 100).toFixed(1)}% - {(audioMuseStats.audioMuse.energy.max * 100).toFixed(1)}% (avg: {(audioMuseStats.audioMuse.energy.avg * 100).toFixed(1)}%)</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Actions */}
         <section style="margin-bottom: 2rem;">
-          <h3>Actions</h3>
+          <h3>Cache Actions</h3>
 
           {/* Artist Cache Progress */}
           <div id="artist-cache-progress" style="display: none; background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
@@ -140,6 +209,21 @@ export function CachePage(props: CachePageProps): JSX.Element {
             <progress id="album-cache-progress-bar" value="0" max="100" style="width: 100%;"></progress>
           </div>
 
+          {/* AudioMuse Sync Progress */}
+          <div id="audiomuse-sync-progress" style="display: none; background: var(--pico-card-background-color); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <div>
+                <strong id="audiomuse-sync-progress-label">Syncing AudioMuse features...</strong>
+                <div style="color: var(--pico-muted-color); font-size: 0.875rem;" id="audiomuse-sync-progress-message">Starting...</div>
+              </div>
+              <div style="text-align: right;">
+                <div id="audiomuse-sync-progress-percent" style="font-size: 1.25rem; font-weight: bold;">0%</div>
+                <div id="audiomuse-sync-progress-eta" style="color: var(--pico-muted-color); font-size: 0.75rem;">calculating...</div>
+              </div>
+            </div>
+            <progress id="audiomuse-sync-progress-bar" value="0" max="100" style="width: 100%;"></progress>
+          </div>
+
           <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
             <button id="warmCacheBtn" class="secondary" onclick="warmCache()">
               🔥 Warm Artist Cache
@@ -147,6 +231,11 @@ export function CachePage(props: CachePageProps): JSX.Element {
             <button id="warmAlbumCacheBtn" class="secondary" onclick="warmAlbumCache()">
               🔥 Warm Album Cache
             </button>
+            {audioMuseStats?.configured && !audioMuseStats.error && (
+              <button id="syncAudioMuseBtn" class="secondary" onclick="syncAudioMuse()">
+                🎵 Sync AudioMuse Features
+              </button>
+            )}
             <button
               id="clearAllBtn"
               class="secondary"
@@ -163,9 +252,13 @@ export function CachePage(props: CachePageProps): JSX.Element {
               💡 <strong>Tips:</strong>
             </p>
             <ul style="margin: 0; padding-left: 1.5rem;">
-              <li>Artist cache is used as fallback when album genres aren't found</li>
-              <li>Album cache provides more accurate genres for varied artists</li>
-              <li>Warm Album Cache fetches genres for ~{stats.albums.total > 0 ? stats.albums.total : '11,000+'} albums (may take 20-30 min)</li>
+              <li><strong>Artist Cache:</strong> Fallback when album genres aren't found</li>
+              <li><strong>Album Cache:</strong> More accurate genres for varied artists</li>
+              <li><strong>AudioMuse:</strong> Provides tempo, energy, mood, and audio features for tracks</li>
+              <li>Album cache warming may take 20-30 minutes for large libraries</li>
+              {audioMuseStats?.configured && !audioMuseStats.error && audioMuseStats.sync && (
+                <li>AudioMuse sync matches tracks by title/artist (coverage: {audioMuseStats.sync.coveragePercent.toFixed(1)}%)</li>
+              )}
             </ul>
           </div>
         </section>

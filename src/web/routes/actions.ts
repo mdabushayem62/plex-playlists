@@ -6,11 +6,11 @@
 import { Router } from 'express';
 import { getViewPath } from '../server.js';
 import { getDb } from '../../db/index.js';
-import { genreCache, albumGenreCache, jobRuns, setupState, playlists } from '../../db/schema.js';
+import { artistCache, albumCache, jobRuns, setupState, playlists } from '../../db/schema.js';
 import { TIME_WINDOWS, SPECIAL_WINDOWS, type PlaylistWindow } from '../../windows.js';
 import { desc, lt, eq, and, gte, lte } from 'drizzle-orm';
 import { importRatingsFromCSVs } from '../../import/importer-fast.js';
-import { clearAllCache } from '../../cache/cache-cli.js';
+import { clearAllCache, getCacheStats } from '../../cache/cache-cli.js';
 import { progressTracker, formatETA } from '../../utils/progress-tracker.js';
 import { existsSync } from 'fs';
 import { jobQueue } from '../../queue/job-queue.js';
@@ -57,25 +57,17 @@ actionsRouter.get('/', async (req, res) => {
       .limit(10);
 
     // Get cache stats (both artist and album)
-    const artistCacheEntries = await db.select().from(genreCache);
-    const albumCacheEntries = await db.select().from(albumGenreCache);
-
+    const stats = await getCacheStats();
     const cacheStats = {
       artists: {
-        total: artistCacheEntries.length,
-        bySource: artistCacheEntries.reduce((acc, entry) => {
-          acc[entry.source] = (acc[entry.source] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-        expired: artistCacheEntries.filter(e => e.expiresAt && e.expiresAt < new Date()).length
+        total: stats.artists.totalEntries,
+        bySource: stats.artists.bySource,
+        expired: stats.artists.expired
       },
       albums: {
-        total: albumCacheEntries.length,
-        bySource: albumCacheEntries.reduce((acc, entry) => {
-          acc[entry.source] = (acc[entry.source] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-        expired: albumCacheEntries.filter(e => e.expiresAt && e.expiresAt < new Date()).length
+        total: stats.albums.totalEntries,
+        bySource: stats.albums.bySource,
+        expired: stats.albums.expired
       }
     };
 
@@ -322,52 +314,36 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
 actionsRouter.get('/cache', async (req, res) => {
   try {
     const db = getDb();
-    const artistCacheEntries = await db.select().from(genreCache);
-    const albumCacheEntries = await db.select().from(albumGenreCache);
 
-    // Helper function to compute stats
-    const computeStats = (entries: typeof artistCacheEntries) => {
-      const now = new Date();
-      const stats = {
-        total: entries.length,
-        bySource: {} as Record<string, number>,
-        expired: 0,
-        expiringWithin7Days: 0,
-        oldestEntry: null as Date | null,
-        newestEntry: null as Date | null
+    // Get comprehensive cache stats from cache service
+    const stats = await getCacheStats();
+
+    // Get raw entries for display in UI
+    const artistCacheEntries = await db.select().from(artistCache);
+    const albumCacheEntries = await db.select().from(albumCache);
+
+    // Get AudioMuse stats (may fail if not configured)
+    let audioMuseStats: Record<string, unknown> | null = null;
+    try {
+      const { APP_ENV } = await import('../../config.js');
+      if (APP_ENV.AUDIOMUSE_DB_HOST && APP_ENV.AUDIOMUSE_DB_USER) {
+        const statsResponse = await fetch('http://localhost:' + APP_ENV.WEB_UI_PORT + '/actions/audiomuse/stats');
+        if (statsResponse.ok) {
+          audioMuseStats = await statsResponse.json() as Record<string, unknown>;
+        }
+      } else {
+        audioMuseStats = {
+          configured: false,
+          message: 'AudioMuse not configured. Add credentials to .env file.'
+        };
+      }
+    } catch {
+      // AudioMuse not configured or not accessible - that's okay
+      audioMuseStats = {
+        configured: false,
+        message: 'AudioMuse not configured'
       };
-
-      entries.forEach(entry => {
-        // By source
-        stats.bySource[entry.source] = (stats.bySource[entry.source] || 0) + 1;
-
-        // Expiration
-        if (entry.expiresAt) {
-          const expiresAt = new Date(entry.expiresAt);
-          if (expiresAt < now) {
-            stats.expired++;
-          } else if (expiresAt.getTime() - now.getTime() < 7 * 24 * 60 * 60 * 1000) {
-            stats.expiringWithin7Days++;
-          }
-        }
-
-        // Age tracking
-        const cachedAt = new Date(entry.cachedAt);
-        if (!stats.oldestEntry || cachedAt < stats.oldestEntry) {
-          stats.oldestEntry = cachedAt;
-        }
-        if (!stats.newestEntry || cachedAt > stats.newestEntry) {
-          stats.newestEntry = cachedAt;
-        }
-      });
-
-      return stats;
-    };
-
-    const stats = {
-      artists: computeStats(artistCacheEntries),
-      albums: computeStats(albumCacheEntries)
-    };
+    }
 
     // Check setup status for navigation
     const setupStates = await db.select().from(setupState).limit(1);
@@ -383,6 +359,7 @@ actionsRouter.get('/cache', async (req, res) => {
       albumEntries: albumCacheEntries
         .sort((a, b) => new Date(b.cachedAt).getTime() - new Date(a.cachedAt).getTime())
         .slice(0, 50), // Show latest 50
+      audioMuseStats,
       setupComplete,
       page: 'actions'
     });
@@ -404,13 +381,13 @@ actionsRouter.post('/cache/clear-expired', async (req, res) => {
     const now = new Date();
 
     const artistResult = await db
-      .delete(genreCache)
-      .where(lt(genreCache.expiresAt, now))
+      .delete(artistCache)
+      .where(lt(artistCache.expiresAt, now))
       .returning();
 
     const albumResult = await db
-      .delete(albumGenreCache)
-      .where(lt(albumGenreCache.expiresAt, now))
+      .delete(albumCache)
+      .where(lt(albumCache.expiresAt, now))
       .returning();
 
     res.json({ deleted: artistResult.length + albumResult.length });
@@ -774,6 +751,135 @@ actionsRouter.get('/queue/stats', async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Queue stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Get AudioMuse sync statistics
+ */
+actionsRouter.get('/audiomuse/stats', async (req, res) => {
+  try {
+    // Check if AudioMuse is configured
+    const { APP_ENV } = await import('../../config.js');
+    if (!APP_ENV.AUDIOMUSE_DB_HOST || !APP_ENV.AUDIOMUSE_DB_USER) {
+      return res.json({
+        configured: false,
+        message: 'AudioMuse not configured. Add credentials to .env file.'
+      });
+    }
+
+    const { getSyncStats } = await import('../../audiomuse/sync-service.js');
+    const { getAudioMuseStats } = await import('../../audiomuse/client.js');
+
+    try {
+      const [syncStats, audioMuseStats] = await Promise.all([
+        getSyncStats(),
+        getAudioMuseStats()
+      ]);
+
+      res.json({
+        configured: true,
+        audioMuse: {
+          totalTracks: audioMuseStats.totalTracks,
+          totalArtists: audioMuseStats.totalArtists,
+          tempo: audioMuseStats.tempo,
+          energy: audioMuseStats.energy
+        },
+        sync: {
+          totalInAudioMuse: syncStats.totalInAudioMuse,
+          totalSynced: syncStats.totalSynced,
+          coveragePercent: syncStats.coveragePercent
+        }
+      });
+    } catch (error) {
+      // Connection error - likely AudioMuse not accessible
+      res.json({
+        configured: true,
+        error: 'Could not connect to AudioMuse database',
+        message: error instanceof Error ? error.message : 'Connection failed'
+      });
+    }
+  } catch (error) {
+    console.error('AudioMuse stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Sync audio features from AudioMuse to local database
+ */
+actionsRouter.post('/audiomuse/sync', async (req, res) => {
+  try {
+    // Check if AudioMuse is configured
+    const { APP_ENV } = await import('../../config.js');
+    if (!APP_ENV.AUDIOMUSE_DB_HOST || !APP_ENV.AUDIOMUSE_DB_USER) {
+      return res.status(400).json({
+        error: 'AudioMuse not configured',
+        message: 'Add AUDIOMUSE_DB_HOST, AUDIOMUSE_DB_USER, and AUDIOMUSE_DB_PASSWORD to .env'
+      });
+    }
+
+    const { dryRun = false, forceResync = false } = req.body;
+
+    // For now, run sync directly (can be moved to queue later if needed)
+    const { syncAudioFeatures } = await import('../../audiomuse/sync-service.js');
+
+    // Return job ID immediately and run in background
+    const db = getDb();
+    const [job] = await db
+      .insert(jobRuns)
+      .values({
+        window: 'audiomuse-sync',
+        startedAt: new Date(),
+        status: 'running'
+      })
+      .returning();
+
+    // Run sync in background
+    (async () => {
+      try {
+        const stats = await syncAudioFeatures({
+          dryRun,
+          forceResync,
+          concurrency: 3,
+          onProgress: (current, total, message) => {
+            progressTracker.update(job.id, {
+              current,
+              total,
+              message
+            });
+          }
+        });
+
+        // Update job as complete
+        await db
+          .update(jobRuns)
+          .set({
+            status: 'success',
+            finishedAt: new Date(),
+            progressMessage: `Synced ${stats.matched} tracks, ${stats.failed} failed`
+          })
+          .where(eq(jobRuns.id, job.id));
+      } catch (error) {
+        // Update job as failed
+        await db
+          .update(jobRuns)
+          .set({
+            status: 'failed',
+            finishedAt: new Date(),
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+          .where(eq(jobRuns.id, job.id));
+      }
+    })();
+
+    res.json({
+      jobId: job.id,
+      message: dryRun ? 'AudioMuse dry-run sync started' : 'AudioMuse sync started'
+    });
+  } catch (error) {
+    console.error('AudioMuse sync error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

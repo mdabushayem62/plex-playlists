@@ -1,13 +1,14 @@
 import { eq, and } from 'drizzle-orm';
 import type { MusicSection } from '@ctrl/plex';
 import { getDb } from './db/index.js';
-import { genreCache, albumGenreCache } from './db/schema.js';
+import { artistCache, albumCache } from './db/schema.js';
 import { getLastFmClient } from './metadata/providers/lastfm.js';
 import { getSpotifyClient } from './metadata/providers/spotify.js';
 import { logger } from './logger.js';
 import { getEffectiveConfig } from './db/settings-service.js';
 import { getPlexServer } from './plex/client.js';
 import { getExpirationTimestamp, CACHE_REFRESH_CONFIG } from './cache/cache-utils.js';
+import { normalizeGenres } from './metadata/genre-service.js';
 
 const CACHE_TTL_DAYS = CACHE_REFRESH_CONFIG.BASE_TTL_DAYS;
 
@@ -114,8 +115,8 @@ export class GenreEnrichmentService {
     try {
       const cached = await db
         .select()
-        .from(genreCache)
-        .where(eq(genreCache.artistName, normalizedName))
+        .from(artistCache)
+        .where(eq(artistCache.artistName, normalizedName))
         .limit(1);
 
       if (cached.length === 0) {
@@ -145,40 +146,65 @@ export class GenreEnrichmentService {
 
   /**
    * Save genres and moods to cache
+   * Genres are normalized before caching (lowercase, standardized punctuation)
    * @param source - Can be a single source ('plex') or comma-separated ('plex,lastfm')
+   * @param moods - Optional moods array
+   * @param spotifyArtistId - Optional Spotify artist ID (for future batch operations)
+   * @param popularity - Optional Spotify popularity score (0-100)
    */
   private async cacheGenres(
     artistName: string,
     genres: string[],
     source: string,
-    moods: string[] = []
+    moods: string[] = [],
+    spotifyArtistId?: string,
+    popularity?: number
   ): Promise<void> {
     const db = getDb();
     const normalizedName = artistName.toLowerCase();
     const expiresAt = new Date(getExpirationTimestamp(CACHE_TTL_DAYS, CACHE_REFRESH_CONFIG.TTL_JITTER_PERCENT));
 
+    // Normalize genres before caching
+    const normalizedGenres = normalizeGenres(genres);
+    const normalizedMoods = normalizeGenres(moods); // Moods also get normalized
+
     try {
+      const values = {
+        artistName: normalizedName,
+        genres: JSON.stringify(normalizedGenres),
+        moods: JSON.stringify(normalizedMoods),
+        source,
+        expiresAt,
+        spotifyArtistId: spotifyArtistId ?? undefined,
+        popularity: popularity ?? undefined
+      };
+
+      const updateSet = {
+        genres: JSON.stringify(normalizedGenres),
+        moods: JSON.stringify(normalizedMoods),
+        source,
+        cachedAt: new Date(),
+        expiresAt,
+        spotifyArtistId: spotifyArtistId ?? undefined,
+        popularity: popularity ?? undefined
+      };
+
       await db
-        .insert(genreCache)
-        .values({
-          artistName: normalizedName,
-          genres: JSON.stringify(genres),
-          moods: JSON.stringify(moods),
-          source,
-          expiresAt
-        })
+        .insert(artistCache)
+        .values(values)
         .onConflictDoUpdate({
-          target: genreCache.artistName,
-          set: {
-            genres: JSON.stringify(genres),
-            moods: JSON.stringify(moods),
-            source,
-            cachedAt: new Date(),
-            expiresAt
-          }
+          target: artistCache.artistName,
+          set: updateSet
         });
 
-      logger.debug({ artistName, genres, moods, source }, 'cached genres and moods');
+      logger.debug({
+        artistName,
+        genres: normalizedGenres,
+        moods: normalizedMoods,
+        source,
+        spotifyArtistId,
+        popularity
+      }, 'cached normalized genres and moods');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
@@ -286,6 +312,10 @@ export class GenreEnrichmentService {
     const allMoods: string[] = [];
     const sources: string[] = [];
 
+    // Declare Spotify variables outside the cacheOnly block to avoid scope issues
+    let spotifyArtistId: string | undefined;
+    let spotifyPopularity: number | undefined;
+
     // 2. Try Plex metadata first (local, no API calls needed)
     const plexData = await this.getPlexData(artistName);
     if (plexData && (plexData.genres.length > 0 || plexData.moods.length > 0)) {
@@ -326,6 +356,7 @@ export class GenreEnrichmentService {
       }
 
       // 4. Only try Spotify if both Plex and Last.fm returned nothing (rate limit conservation)
+
       if (allGenres.length === 0) {
         const spotifyClient = getSpotifyClient(
           config.spotifyClientId || undefined,
@@ -333,12 +364,15 @@ export class GenreEnrichmentService {
         );
         if (spotifyClient.isEnabled()) {
           try {
-            const spotifyGenres = await spotifyClient.getArtistGenres(artistName);
-            if (spotifyGenres.length > 0) {
-              allGenres.push(...spotifyGenres);
+            // Use getArtistInfo to get genres + ID + popularity in one call
+            const spotifyInfo = await spotifyClient.getArtistInfo(artistName);
+            if (spotifyInfo && spotifyInfo.genres.length > 0) {
+              allGenres.push(...spotifyInfo.genres);
+              spotifyArtistId = spotifyInfo.id;
+              spotifyPopularity = spotifyInfo.popularity;
               sources.push('spotify');
               logger.debug(
-                { artistName, genres: spotifyGenres },
+                { artistName, genres: spotifyInfo.genres, id: spotifyArtistId, popularity: spotifyPopularity },
                 'genres from Spotify (fallback)'
               );
               if (options?.onSourceUsed) {
@@ -359,7 +393,7 @@ export class GenreEnrichmentService {
 
     // 6. Cache merged results (if we found anything)
     if (mergedGenres.length > 0) {
-      await this.cacheGenres(artistName, mergedGenres, sourceString, mergedMoods);
+      await this.cacheGenres(artistName, mergedGenres, sourceString, mergedMoods, spotifyArtistId, spotifyPopularity);
       logger.info(
         {
           artistName,
@@ -462,11 +496,11 @@ export class GenreEnrichmentService {
     try {
       const cached = await db
         .select()
-        .from(albumGenreCache)
+        .from(albumCache)
         .where(
           and(
-            eq(albumGenreCache.artistName, normalizedArtist),
-            eq(albumGenreCache.albumName, normalizedAlbum)
+            eq(albumCache.artistName, normalizedArtist),
+            eq(albumCache.albumName, normalizedAlbum)
           )
         )
         .limit(1);
@@ -498,6 +532,7 @@ export class GenreEnrichmentService {
 
   /**
    * Save album genres and moods to cache
+   * Genres are normalized before caching (lowercase, standardized punctuation)
    * @param source - Can be a single source ('plex') or comma-separated ('plex,lastfm')
    */
   private async cacheAlbumGenres(
@@ -512,29 +547,33 @@ export class GenreEnrichmentService {
     const normalizedAlbum = albumName.toLowerCase();
     const expiresAt = new Date(getExpirationTimestamp(CACHE_TTL_DAYS, CACHE_REFRESH_CONFIG.TTL_JITTER_PERCENT));
 
+    // Normalize genres before caching
+    const normalizedGenres = normalizeGenres(genres);
+    const normalizedMoods = normalizeGenres(moods);
+
     try {
       await db
-        .insert(albumGenreCache)
+        .insert(albumCache)
         .values({
           artistName: normalizedArtist,
           albumName: normalizedAlbum,
-          genres: JSON.stringify(genres),
-          moods: JSON.stringify(moods),
+          genres: JSON.stringify(normalizedGenres),
+          moods: JSON.stringify(normalizedMoods),
           source,
           expiresAt
         })
         .onConflictDoUpdate({
-          target: [albumGenreCache.artistName, albumGenreCache.albumName],
+          target: [albumCache.artistName, albumCache.albumName],
           set: {
-            genres: JSON.stringify(genres),
-            moods: JSON.stringify(moods),
+            genres: JSON.stringify(normalizedGenres),
+            moods: JSON.stringify(normalizedMoods),
             source,
             cachedAt: new Date(),
             expiresAt
           }
         });
 
-      logger.debug({ artistName, albumName, genres, moods, source }, 'cached album genres and moods');
+      logger.debug({ artistName, albumName, genres: normalizedGenres, moods: normalizedMoods, source }, 'cached normalized album genres and moods');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
@@ -633,8 +672,8 @@ export class GenreEnrichmentService {
       // Check cache first
       const cached = await db
         .select()
-        .from(genreCache)
-        .where(eq(genreCache.artistName, normalizedName))
+        .from(artistCache)
+        .where(eq(artistCache.artistName, normalizedName))
         .limit(1);
 
       if (cached.length > 0) {
@@ -681,11 +720,11 @@ export class GenreEnrichmentService {
       // Check cache first
       const cached = await db
         .select()
-        .from(albumGenreCache)
+        .from(albumCache)
         .where(
           and(
-            eq(albumGenreCache.artistName, normalizedArtist),
-            eq(albumGenreCache.albumName, normalizedAlbum)
+            eq(albumCache.artistName, normalizedArtist),
+            eq(albumCache.albumName, normalizedAlbum)
           )
         )
         .limit(1);
@@ -723,13 +762,13 @@ export class GenreEnrichmentService {
 
     try {
       const artistResult = await db
-        .delete(genreCache)
-        .where(eq(genreCache.expiresAt, new Date()))
+        .delete(artistCache)
+        .where(eq(artistCache.expiresAt, new Date()))
         .returning();
 
       const albumResult = await db
-        .delete(albumGenreCache)
-        .where(eq(albumGenreCache.expiresAt, new Date()))
+        .delete(albumCache)
+        .where(eq(albumCache.expiresAt, new Date()))
         .returning();
 
       const totalCleared = artistResult.length + albumResult.length;

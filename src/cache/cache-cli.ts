@@ -2,7 +2,7 @@ import type { MusicSection, Section } from '@ctrl/plex';
 import { getPlexServer } from '../plex/client.js';
 import { getGenreEnrichmentService } from '../genre-enrichment.js';
 import { getDb } from '../db/index.js';
-import { genreCache, albumGenreCache } from '../db/schema.js';
+import { artistCache, albumCache } from '../db/schema.js';
 import { logger } from '../logger.js';
 import { lt, and, or, sql } from 'drizzle-orm';
 import { recordJobStart, recordJobCompletion } from '../db/repository.js';
@@ -53,8 +53,8 @@ const findMusicSection = async () => {
  */
 export async function getCacheStats(): Promise<CacheStats> {
   const db = getDb();
-  const artistEntries = await db.select().from(genreCache);
-  const albumEntries = await db.select().from(albumGenreCache);
+  const artistEntries = await db.select().from(artistCache);
+  const albumEntries = await db.select().from(albumCache);
 
   const now = new Date();
   const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -108,13 +108,13 @@ export async function clearExpiredCache(): Promise<number> {
   const now = new Date();
 
   const deletedArtists = await db
-    .delete(genreCache)
-    .where(lt(genreCache.expiresAt, now))
+    .delete(artistCache)
+    .where(lt(artistCache.expiresAt, now))
     .returning();
 
   const deletedAlbums = await db
-    .delete(albumGenreCache)
-    .where(lt(albumGenreCache.expiresAt, now))
+    .delete(albumCache)
+    .where(lt(albumCache.expiresAt, now))
     .returning();
 
   const total = deletedArtists.length + deletedAlbums.length;
@@ -132,11 +132,11 @@ export async function clearAllCache(): Promise<number> {
   const db = getDb();
 
   const deletedArtists = await db
-    .delete(genreCache)
+    .delete(artistCache)
     .returning();
 
   const deletedAlbums = await db
-    .delete(albumGenreCache)
+    .delete(albumCache)
     .returning();
 
   const total = deletedArtists.length + deletedAlbums.length;
@@ -188,46 +188,46 @@ export async function refreshExpiringCache(options: {
     // 3 = Cold: rarely/never used, very old
     const candidates = await db
       .select({
-        artistName: genreCache.artistName,
-        cachedAt: genreCache.cachedAt,
-        lastUsedAt: genreCache.lastUsedAt,
+        artistName: artistCache.artistName,
+        cachedAt: artistCache.cachedAt,
+        lastUsedAt: artistCache.lastUsedAt,
         priority: sql<number>`
           CASE
-            WHEN ${genreCache.lastUsedAt} >= ${hotUsedThreshold} AND ${genreCache.cachedAt} < ${hotAgeThreshold}
+            WHEN ${artistCache.lastUsedAt} >= ${hotUsedThreshold} AND ${artistCache.cachedAt} < ${hotAgeThreshold}
               THEN 1
-            WHEN ${genreCache.lastUsedAt} >= ${warmUsedThreshold} AND ${genreCache.cachedAt} < ${warmAgeThreshold}
+            WHEN ${artistCache.lastUsedAt} >= ${warmUsedThreshold} AND ${artistCache.cachedAt} < ${warmAgeThreshold}
               THEN 2
-            WHEN (${genreCache.lastUsedAt} IS NULL OR ${genreCache.lastUsedAt} < ${warmUsedThreshold}) AND ${genreCache.cachedAt} < ${coldAgeThreshold}
+            WHEN (${artistCache.lastUsedAt} IS NULL OR ${artistCache.lastUsedAt} < ${warmUsedThreshold}) AND ${artistCache.cachedAt} < ${coldAgeThreshold}
               THEN 3
             ELSE 999
           END
         `.as('priority')
       })
-      .from(genreCache)
+      .from(artistCache)
       .where(
         or(
           // Hot tier: used recently, cache is old
           and(
-            sql`${genreCache.lastUsedAt} >= ${hotUsedThreshold}`,
-            sql`${genreCache.cachedAt} < ${hotAgeThreshold}`
+            sql`${artistCache.lastUsedAt} >= ${hotUsedThreshold}`,
+            sql`${artistCache.cachedAt} < ${hotAgeThreshold}`
           ),
           // Warm tier: used occasionally, cache is old
           and(
-            sql`${genreCache.lastUsedAt} >= ${warmUsedThreshold}`,
-            sql`${genreCache.lastUsedAt} < ${hotUsedThreshold}`,
-            sql`${genreCache.cachedAt} < ${warmAgeThreshold}`
+            sql`${artistCache.lastUsedAt} >= ${warmUsedThreshold}`,
+            sql`${artistCache.lastUsedAt} < ${hotUsedThreshold}`,
+            sql`${artistCache.cachedAt} < ${warmAgeThreshold}`
           ),
           // Cold tier: rarely/never used, cache is very old
           and(
             or(
-              sql`${genreCache.lastUsedAt} IS NULL`,
-              sql`${genreCache.lastUsedAt} < ${warmUsedThreshold}`
+              sql`${artistCache.lastUsedAt} IS NULL`,
+              sql`${artistCache.lastUsedAt} < ${warmUsedThreshold}`
             ),
-            sql`${genreCache.cachedAt} < ${coldAgeThreshold}`
+            sql`${artistCache.cachedAt} < ${coldAgeThreshold}`
           )
         )
       )
-      .orderBy(sql`priority ASC, ${genreCache.cachedAt} ASC`); // Priority first, then oldest within tier
+      .orderBy(sql`priority ASC, ${artistCache.cachedAt} ASC`); // Priority first, then oldest within tier
 
     // Track tier breakdown for observability
     const tierBreakdown: Record<string, number> = {
@@ -310,7 +310,7 @@ export async function refreshExpiringCache(options: {
         tierBreakdown
       };
     } catch (error) {
-      const errorMsg = formatUserError(error, 'refreshing genre cache');
+      const errorMsg = formatUserError(error, 'refreshing metadata cache');
       errors.push(errorMsg);
       logger.error({ error: errorMsg }, 'cache refresh failed');
 
@@ -327,7 +327,7 @@ export async function refreshExpiringCache(options: {
       };
     }
   } catch (error) {
-    const errorMsg = formatUserError(error, 'refreshing genre cache');
+    const errorMsg = formatUserError(error, 'refreshing metadata cache');
     if (jobId) await recordJobCompletion(jobId, 'failed', errorMsg);
     throw error;
   }
@@ -353,8 +353,8 @@ async function filterUncachedArtists(artistNames: string[]): Promise<string[]> {
   // Find all cached artists that haven't expired
   // Query all cache entries since we can't efficiently do IN with large arrays in SQLite
   const allCached = await db
-    .select({ artistName: genreCache.artistName, expiresAt: genreCache.expiresAt })
-    .from(genreCache);
+    .select({ artistName: artistCache.artistName, expiresAt: artistCache.expiresAt })
+    .from(artistCache);
 
   // Filter in memory for artists we care about that haven't expired
   const cachedSet = new Set<string>();
@@ -631,11 +631,11 @@ async function filterUncachedAlbums(
   // Find all cached albums that haven't expired
   const allCached = await db
     .select({
-      artistName: albumGenreCache.artistName,
-      albumName: albumGenreCache.albumName,
-      expiresAt: albumGenreCache.expiresAt
+      artistName: albumCache.artistName,
+      albumName: albumCache.albumName,
+      expiresAt: albumCache.expiresAt
     })
-    .from(albumGenreCache);
+    .from(albumCache);
 
   // Filter in memory for albums we care about that haven't expired
   const cachedSet = new Set<string>();
