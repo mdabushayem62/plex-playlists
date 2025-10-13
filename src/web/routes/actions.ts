@@ -12,8 +12,8 @@ import { desc, lt, eq, and, gte, lte } from 'drizzle-orm';
 import { importRatingsFromCSVs } from '../../import/importer-fast.js';
 import { clearAllCache, getCacheStats } from '../../cache/cache-cli.js';
 import { progressTracker, formatETA } from '../../utils/progress-tracker.js';
-import { existsSync } from 'fs';
 import { jobQueue } from '../../queue/job-queue.js';
+import { sanitizeFilePath, isValidDirectory, escapeHtml } from '../../utils/security.js';
 
 export const actionsRouter = Router();
 
@@ -459,11 +459,25 @@ actionsRouter.post('/import/run', async (req, res) => {
       `);
     }
 
-    // Validate path exists
-    if (!existsSync(csvPath)) {
+    // Sanitize and validate path to prevent directory traversal
+    let sanitizedPath: string;
+    try {
+      sanitizedPath = sanitizeFilePath(csvPath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? escapeHtml(error.message) : 'Invalid path';
       return res.status(400).send(`
         <div style="background: var(--pico-del-color); padding: 1rem; border-radius: 0.25rem;">
-          <strong>Error:</strong> Directory not found: <code>${csvPath}</code>
+          <strong>Security Error:</strong> ${errorMsg}
+        </div>
+      `);
+    }
+
+    // Validate path exists and is a directory
+    if (!isValidDirectory(sanitizedPath)) {
+      const escapedPath = escapeHtml(sanitizedPath);
+      return res.status(400).send(`
+        <div style="background: var(--pico-del-color); padding: 1rem; border-radius: 0.25rem;">
+          <strong>Error:</strong> Directory not found or invalid: <code>${escapedPath}</code>
           <p style="margin: 0.5rem 0 0 0;">
             Make sure the path is correct and the directory exists on your server.
           </p>
@@ -471,12 +485,13 @@ actionsRouter.post('/import/run', async (req, res) => {
       `);
     }
 
-    // Send immediate response
+    // Send immediate response with escaped path
+    const escapedPath = escapeHtml(sanitizedPath);
     res.send(`
       <div style="background: var(--pico-primary); padding: 1rem; border-radius: 0.25rem; margin-bottom: 1rem;">
         <strong>✓ Import Started</strong>
         <p style="margin: 0.5rem 0 0 0;">
-          Processing CSV files from <code>${csvPath}</code>. This may take several minutes...
+          Processing CSV files from <code>${escapedPath}</code>. This may take several minutes...
         </p>
       </div>
       <div id="import-progress">
@@ -484,10 +499,10 @@ actionsRouter.post('/import/run', async (req, res) => {
       </div>
     `);
 
-    // Run import in background
+    // Run import in background with sanitized path
     (async () => {
       try {
-        const result = await importRatingsFromCSVs(csvPath, false);
+        const result = await importRatingsFromCSVs(sanitizedPath, false);
         console.log('Import completed:', result);
       } catch (error) {
         console.error('Import error:', error);
@@ -495,9 +510,10 @@ actionsRouter.post('/import/run', async (req, res) => {
     })();
 
   } catch (error) {
+    const errorMsg = error instanceof Error ? escapeHtml(error.message) : 'Unknown error';
     res.status(500).send(`
       <div style="background: var(--pico-del-color); padding: 1rem; border-radius: 0.25rem;">
-        <strong>Error:</strong> ${error instanceof Error ? error.message : 'Unknown error'}
+        <strong>Error:</strong> ${errorMsg}
       </div>
     `);
   }

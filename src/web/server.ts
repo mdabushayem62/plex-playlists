@@ -14,6 +14,7 @@ import { actionsRouter } from './routes/actions.js';
 import { configRouter } from './routes/config.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { analyticsRouter } from './routes/analytics.js';
+import { generalLimiter, strictLimiter, resourceLimiter } from './middleware/rate-limit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +54,9 @@ export function createWebServer(config: WebServerConfig) {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Rate limiting - apply general limiter to all routes by default
+  app.use(generalLimiter);
+
   // Static files
   app.use(express.static(path.join(WEB_BASE_PATH, 'public')));
 
@@ -60,13 +64,22 @@ export function createWebServer(config: WebServerConfig) {
   app.set('view engine', 'ejs');
   app.set('views', path.join(WEB_BASE_PATH, 'views'));
 
-  // Routes
+  // Routes with specific rate limiters
+  // Dashboard and analytics - general limiter (applied globally above)
   app.use('/', dashboardRouter);
-  app.use('/setup', setupRouter);
-  app.use('/actions', actionsRouter);
   app.use('/analytics', analyticsRouter);
-  app.use('/config', configRouter);
-  app.use('/playlists', playlistsRouter);
+
+  // Setup wizard - strict limiter for sensitive initial configuration
+  app.use('/setup', strictLimiter, setupRouter);
+
+  // Configuration changes - strict limiter for sensitive settings
+  app.use('/config', strictLimiter, configRouter);
+
+  // Actions (playlist generation, cache warming, imports) - resource limiter
+  app.use('/actions', resourceLimiter, actionsRouter);
+
+  // Playlists (create/update custom playlists) - strict limiter
+  app.use('/playlists', strictLimiter, playlistsRouter);
 
   // Health check endpoint (for Docker)
   app.get('/health', (req, res) => {
