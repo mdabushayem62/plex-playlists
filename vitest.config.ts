@@ -11,12 +11,25 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'html'],
+
+      // Start low, increase gradually
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 65,
+      },
+
+      // Report on all files, not just tested ones
+      all: true,
+
+      include: ['src/**/*.ts'],
       exclude: [
         'node_modules/',
         'dist/',
         '**/*.test.ts',
         '**/*.spec.ts',
+        '**/__tests__/**',
         'drizzle/',
         '.venv/',
         'imported_playlists/',
@@ -24,6 +37,11 @@ export default defineConfig({
         '*.config.ts',
         '*.config.js',
         'healthcheck.js',
+        'src/cli.ts',           // CLI entry point
+        'src/index.ts',         // Server entry point
+        'src/web/views/**',     // TSX views (require different testing)
+        'src/types/**',         // Type-only files
+        'src/**/types.ts',      // Type definition files
       ],
     },
   },

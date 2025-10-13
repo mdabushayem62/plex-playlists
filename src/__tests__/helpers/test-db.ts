@@ -10,7 +10,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from '../../db/schema.js';
 
 export interface TestDbContext {
-  db: BetterSQLite3Database<typeof schema>;
+  db: BetterSQLite3Database<typeof schema> & { $client: Database.Database };
   sqlite: Database.Database;
 }
 
@@ -19,7 +19,7 @@ export interface TestDbContext {
  */
 export function createTestDb(): TestDbContext {
   const sqlite = new Database(':memory:');
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle(sqlite, { schema }) as BetterSQLite3Database<typeof schema> & { $client: Database.Database };
 
   // Run migrations
   migrate(db, { migrationsFolder: './drizzle' });
