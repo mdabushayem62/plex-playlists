@@ -40,7 +40,13 @@ export type SettingKey =
   | 'throwback_cron'
   | 'custom_playlists_cron'
   | 'cache_warm_cron'
-  | 'cache_refresh_cron';
+  | 'cache_refresh_cron'
+  // Adaptive Queue
+  | 'adaptive_queue_enabled'
+  | 'adaptive_sensitivity'
+  | 'adaptive_min_skip_count'
+  | 'adaptive_window_minutes'
+  | 'adaptive_cooldown_seconds';
 
 /**
  * Get a setting value from database
@@ -158,7 +164,14 @@ export async function getEffectiveConfig() {
     throwbackCron: dbSettings.throwback_cron || APP_ENV.THROWBACK_CRON,
     customPlaylistsCron: dbSettings.custom_playlists_cron || APP_ENV.CUSTOM_PLAYLISTS_CRON,
     cacheWarmCron: dbSettings.cache_warm_cron || APP_ENV.CACHE_WARM_CRON,
-    cacheRefreshCron: dbSettings.cache_refresh_cron || APP_ENV.CACHE_REFRESH_CRON
+    cacheRefreshCron: dbSettings.cache_refresh_cron || APP_ENV.CACHE_REFRESH_CRON,
+
+    // Adaptive Queue
+    adaptiveQueueEnabled: dbSettings.adaptive_queue_enabled === 'true' || APP_ENV.ADAPTIVE_QUEUE_ENABLED,
+    adaptiveSensitivity: getNumber('adaptive_sensitivity', APP_ENV.ADAPTIVE_SENSITIVITY),
+    adaptiveMinSkipCount: getNumber('adaptive_min_skip_count', APP_ENV.ADAPTIVE_MIN_SKIP_COUNT),
+    adaptiveWindowMinutes: getNumber('adaptive_window_minutes', APP_ENV.ADAPTIVE_WINDOW_MINUTES),
+    adaptiveCooldownSeconds: getNumber('adaptive_cooldown_seconds', APP_ENV.ADAPTIVE_COOLDOWN_SECONDS)
   };
 }
 
@@ -169,8 +182,8 @@ export interface SettingMetadata {
   key: SettingKey;
   value: string | number | boolean | string[];
   source: 'database' | 'env' | 'default';
-  type: 'text' | 'number' | 'url' | 'password' | 'json' | 'cron';
-  category: 'plex' | 'api' | 'scoring' | 'scheduling' | 'playlists';
+  type: 'text' | 'number' | 'url' | 'password' | 'json' | 'cron' | 'boolean';
+  category: 'plex' | 'api' | 'scoring' | 'scheduling' | 'playlists' | 'adaptive';
   description: string;
   defaultValue: string | number | string[];
   validation?: {
@@ -459,6 +472,69 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
       category: 'scheduling',
       description: 'Cache refresh schedule (refreshes expiring cache entries)',
       defaultValue: '0 * * * *'
+    },
+
+    // Adaptive Queue
+    adaptive_queue_enabled: {
+      key: 'adaptive_queue_enabled',
+      value: effectiveConfig.adaptiveQueueEnabled,
+      source: getSource('adaptive_queue_enabled'),
+      type: 'boolean',
+      category: 'adaptive',
+      description: 'Enable real-time PlayQueue adaptation based on skip patterns (Beta)',
+      defaultValue: false
+    },
+    adaptive_sensitivity: {
+      key: 'adaptive_sensitivity',
+      value: effectiveConfig.adaptiveSensitivity,
+      source: getSource('adaptive_sensitivity'),
+      type: 'number',
+      category: 'adaptive',
+      description: 'Sensitivity level (1-10, higher = more aggressive adaptations)',
+      defaultValue: 5,
+      validation: {
+        min: 1,
+        max: 10
+      }
+    },
+    adaptive_min_skip_count: {
+      key: 'adaptive_min_skip_count',
+      value: effectiveConfig.adaptiveMinSkipCount,
+      source: getSource('adaptive_min_skip_count'),
+      type: 'number',
+      category: 'adaptive',
+      description: 'Minimum skips to trigger pattern detection',
+      defaultValue: 2,
+      validation: {
+        min: 1,
+        max: 5
+      }
+    },
+    adaptive_window_minutes: {
+      key: 'adaptive_window_minutes',
+      value: effectiveConfig.adaptiveWindowMinutes,
+      source: getSource('adaptive_window_minutes'),
+      type: 'number',
+      category: 'adaptive',
+      description: 'Time window for pattern detection (minutes)',
+      defaultValue: 5,
+      validation: {
+        min: 1,
+        max: 15
+      }
+    },
+    adaptive_cooldown_seconds: {
+      key: 'adaptive_cooldown_seconds',
+      value: effectiveConfig.adaptiveCooldownSeconds,
+      source: getSource('adaptive_cooldown_seconds'),
+      type: 'number',
+      category: 'adaptive',
+      description: 'Cooldown between adaptations (seconds)',
+      defaultValue: 10,
+      validation: {
+        min: 5,
+        max: 60
+      }
     }
   };
 }
@@ -478,7 +554,12 @@ export function validateSetting(key: SettingKey, value: string): { valid: boolea
     fallback_limit: v => !isNaN(v) && v >= 50 && v <= 1000,
     exploration_rate: v => !isNaN(v) && v >= 0.0 && v <= 1.0,
     exclusion_days: v => !isNaN(v) && v >= 1 && v <= 90,
-    discovery_days: v => !isNaN(v) && v >= 1 && v <= 365
+    discovery_days: v => !isNaN(v) && v >= 1 && v <= 365,
+    // Adaptive Queue
+    adaptive_sensitivity: v => !isNaN(v) && v >= 1 && v <= 10,
+    adaptive_min_skip_count: v => !isNaN(v) && v >= 1 && v <= 5,
+    adaptive_window_minutes: v => !isNaN(v) && v >= 1 && v <= 15,
+    adaptive_cooldown_seconds: v => !isNaN(v) && v >= 5 && v <= 60
   };
 
   // URL validator
@@ -490,8 +571,15 @@ export function validateSetting(key: SettingKey, value: string): { valid: boolea
     return parts.length === 5 || parts.length === 6;
   };
 
+  // Boolean validator
+  const booleanValidator = (v: string) => v === 'true' || v === 'false';
+
   // Apply appropriate validator
-  if (numberValidators[key]) {
+  if (key === 'adaptive_queue_enabled') {
+    if (!booleanValidator(value)) {
+      return { valid: false, error: 'Invalid boolean value (must be "true" or "false")' };
+    }
+  } else if (numberValidators[key]) {
     const num = parseFloat(value);
     if (!numberValidators[key]!(num)) {
       return { valid: false, error: `Invalid value for ${key}` };

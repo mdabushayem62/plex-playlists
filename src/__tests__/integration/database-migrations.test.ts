@@ -29,6 +29,10 @@ describe('Database Migrations Integration', () => {
     const tableNames = tables.map(t => t.name).sort();
 
     expect(tableNames).toEqual([
+      'adaptive_actions',
+      'adaptive_completion_events',
+      'adaptive_sessions',
+      'adaptive_skip_events',
       'album_cache',
       'artist_cache',
       'audio_features',

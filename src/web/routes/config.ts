@@ -590,3 +590,40 @@ configRouter.get('/api/genres/all', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch genres' });
   }
 });
+
+/**
+ * Adaptive PlayQueue settings page
+ * Beta feature for real-time queue adaptation based on skip patterns
+ */
+configRouter.get('/adaptive', async (req, res) => {
+  try {
+    const setupComplete = await getSetupStatus();
+
+    // Get effective config (DB settings with env fallback)
+    const { getEffectiveConfig } = await import('../../db/settings-service.js');
+    const effectiveConfig = await getEffectiveConfig();
+
+    // Get adaptive statistics
+    const { getAdaptiveStats } = await import('../../adaptive/adaptive-repository.js');
+    const stats = await getAdaptiveStats();
+
+    // Render TSX component
+    const { AdaptiveSettingsPage } = await import(getViewPath('config/adaptive.tsx'));
+    const html = AdaptiveSettingsPage({
+      enabled: effectiveConfig.adaptiveQueueEnabled,
+      sensitivity: effectiveConfig.adaptiveSensitivity,
+      minSkips: effectiveConfig.adaptiveMinSkipCount,
+      windowMinutes: effectiveConfig.adaptiveWindowMinutes,
+      cooldownSeconds: effectiveConfig.adaptiveCooldownSeconds,
+      stats,
+      page: 'config',
+      setupComplete
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Adaptive settings page error:', error);
+    res.status(500).send('Internal server error');
+  }
+});

@@ -295,6 +295,99 @@ export const audioFeatures = sqliteTable(
   })
 );
 
+/**
+ * Adaptive PlayQueue session tracking
+ * Single-user deployment: no userId field needed
+ * Tracks active Plexamp sessions and their queue associations
+ */
+export const adaptiveSessions = sqliteTable('adaptive_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  machineIdentifier: text('machine_identifier').notNull().unique(),
+  playQueueId: integer('play_queue_id'),
+  playlistId: integer('playlist_id'), // Reference to our playlists table
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(strftime('%s','now')*1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(strftime('%s','now')*1000)`),
+});
+
+/**
+ * Skip event tracking for pattern analysis
+ * Records when user skips tracks during playback
+ */
+export const adaptiveSkipEvents = sqliteTable(
+  'adaptive_skip_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => adaptiveSessions.id, { onDelete: 'cascade' }),
+    trackRatingKey: text('track_rating_key').notNull(),
+    trackTitle: text('track_title').notNull(),
+    genres: text('genres'), // JSON array
+    artists: text('artists'), // JSON array
+    skippedAt: integer('skipped_at', { mode: 'timestamp_ms' }).notNull(),
+    listenDurationMs: integer('listen_duration_ms').notNull(),
+    completionPercent: real('completion_percent').notNull(),
+  },
+  (table) => ({
+    sessionIdx: index('adaptive_skip_events_session_idx').on(table.sessionId),
+    skippedAtIdx: index('adaptive_skip_events_skipped_at_idx').on(table.skippedAt),
+  })
+);
+
+/**
+ * Completion event tracking (successful listens)
+ * Records when user completes tracks (90%+ playback)
+ */
+export const adaptiveCompletionEvents = sqliteTable(
+  'adaptive_completion_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => adaptiveSessions.id, { onDelete: 'cascade' }),
+    trackRatingKey: text('track_rating_key').notNull(),
+    trackTitle: text('track_title').notNull(),
+    genres: text('genres'), // JSON array
+    artists: text('artists'), // JSON array
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull(),
+    listenDurationMs: integer('listen_duration_ms').notNull(),
+  },
+  (table) => ({
+    sessionIdx: index('adaptive_completion_events_session_idx').on(table.sessionId),
+    completedAtIdx: index('adaptive_completion_events_completed_at_idx').on(table.completedAt),
+  })
+);
+
+/**
+ * Adaptive actions log for analytics
+ * Records when queue adaptations occur and what changes were made
+ */
+export const adaptiveActions = sqliteTable(
+  'adaptive_actions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => adaptiveSessions.id, { onDelete: 'cascade' }),
+    playQueueId: integer('play_queue_id').notNull(),
+    actionType: text('action_type').notNull(), // 'remove_genre', 'remove_artist', 'refill'
+    actionData: text('action_data'), // JSON details
+    reason: text('reason'),
+    tracksAffected: integer('tracks_affected'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`),
+  },
+  (table) => ({
+    sessionIdx: index('adaptive_actions_session_idx').on(table.sessionId),
+    createdAtIdx: index('adaptive_actions_created_at_idx').on(table.createdAt),
+  })
+);
+
 export type PlaylistRecord = typeof playlists.$inferSelect;
 export type PlaylistTrackRecord = typeof playlistTracks.$inferSelect;
 export type JobRunRecord = typeof jobRuns.$inferSelect;
@@ -306,6 +399,10 @@ export type SettingsHistoryRecord = typeof settingsHistory.$inferSelect;
 export type CustomPlaylistRecord = typeof customPlaylists.$inferSelect;
 export type TrackCacheRecord = typeof trackCache.$inferSelect;
 export type AudioFeaturesRecord = typeof audioFeatures.$inferSelect;
+export type AdaptiveSessionRecord = typeof adaptiveSessions.$inferSelect;
+export type AdaptiveSkipEventRecord = typeof adaptiveSkipEvents.$inferSelect;
+export type AdaptiveCompletionEventRecord = typeof adaptiveCompletionEvents.$inferSelect;
+export type AdaptiveActionRecord = typeof adaptiveActions.$inferSelect;
 
 // Legacy aliases for backward compatibility (will be removed in future)
 /** @deprecated Use ArtistCacheRecord instead */

@@ -50,7 +50,13 @@ export const APP_ENV = cleanEnv(process.env, {
   FALLBACK_LIMIT: num({ default: 200 }),
   EXPLORATION_RATE: num({ default: 0.15, desc: 'Exploration rate for discovery (0.0-1.0, default: 0.15 = 15%)' }),
   EXCLUSION_DAYS: num({ default: 7, desc: 'Days to exclude recently-recommended tracks from new playlists (default: 7)' }),
-  DISCOVERY_DAYS: num({ default: 90, desc: 'Minimum days since last play for discovery playlist (default: 90)' })
+  DISCOVERY_DAYS: num({ default: 90, desc: 'Minimum days since last play for discovery playlist (default: 90)' }),
+  // Adaptive PlayQueue settings
+  ADAPTIVE_QUEUE_ENABLED: bool({ default: false, desc: 'Enable real-time PlayQueue adaptation based on skip patterns (Beta)' }),
+  ADAPTIVE_SENSITIVITY: num({ default: 5, desc: 'Sensitivity level for adaptive queue (1-10, higher = more aggressive)' }),
+  ADAPTIVE_MIN_SKIP_COUNT: num({ default: 2, desc: 'Minimum skips to trigger pattern detection' }),
+  ADAPTIVE_WINDOW_MINUTES: num({ default: 5, desc: 'Time window for pattern detection (minutes)' }),
+  ADAPTIVE_COOLDOWN_SECONDS: num({ default: 10, desc: 'Cooldown between adaptations (seconds)' })
 });
 
 export type AppEnv = typeof APP_ENV;

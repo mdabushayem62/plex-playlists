@@ -17,5 +17,5 @@
     "jsxFragmentFactory": "Html.Fragment"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "bin/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "src/test-*.ts"]
 }

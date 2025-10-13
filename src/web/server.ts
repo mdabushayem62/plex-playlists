@@ -14,6 +14,7 @@ import { actionsRouter } from './routes/actions.js';
 import { configRouter } from './routes/config.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { analyticsRouter } from './routes/analytics.js';
+import { webhooksRouter } from './routes/webhooks.js';
 import { generalLimiter, strictLimiter, resourceLimiter } from './middleware/rate-limit.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -80,6 +81,10 @@ export function createWebServer(config: WebServerConfig) {
 
   // Playlists (create/update custom playlists) - strict limiter
   app.use('/playlists', strictLimiter, playlistsRouter);
+
+  // Webhooks from Plex server - no rate limiting (internal Docker network)
+  // Note: Plex webhooks require <5s response time, so no blocking operations
+  app.use('/webhooks', webhooksRouter);
 
   // Health check endpoint (for Docker)
   app.get('/health', (req, res) => {
