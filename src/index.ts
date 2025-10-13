@@ -57,12 +57,20 @@ export const createApp = (): App => {
         cronExpressions['custom-playlists'] = APP_ENV.CUSTOM_PLAYLISTS_CRON;
       }
 
-      // Add cache maintenance jobs
+      // Add cache maintenance jobs (genre cache)
       if (APP_ENV.CACHE_WARM_CRON) {
         cronExpressions['cache-warm'] = APP_ENV.CACHE_WARM_CRON;
       }
       if (APP_ENV.CACHE_REFRESH_CRON) {
         cronExpressions['cache-refresh'] = APP_ENV.CACHE_REFRESH_CRON;
+      }
+
+      // Add track cache maintenance jobs
+      if (APP_ENV.TRACK_CACHE_REFRESH_CRON) {
+        cronExpressions['track-cache-refresh'] = APP_ENV.TRACK_CACHE_REFRESH_CRON;
+      }
+      if (APP_ENV.TRACK_CACHE_SYNC_RECENT_CRON) {
+        cronExpressions['track-cache-sync-recent'] = APP_ENV.TRACK_CACHE_SYNC_RECENT_CRON;
       }
 
       logger.info(

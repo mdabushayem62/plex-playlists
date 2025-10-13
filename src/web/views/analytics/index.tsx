@@ -136,7 +136,7 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             When do YOU listen to music? Based on your last 90 days of listening history. Larger bubbles = more plays.
           </p>
           <div class="stat-card">
-            <canvas id="heatmapChart" style="max-height: 400px;"></canvas>
+            <canvas id="heatmapChart" style="min-height: 300px, max-height: 400px;"></canvas>
           </div>
         </section>
 
