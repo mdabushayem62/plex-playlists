@@ -29,15 +29,17 @@ describe('Database Migrations Integration', () => {
     const tableNames = tables.map(t => t.name).sort();
 
     expect(tableNames).toEqual([
-      'album_genre_cache',
+      'album_cache',
+      'artist_cache',
+      'audio_features',
       'custom_playlists',
-      'genre_cache',
       'job_runs',
       'playlist_tracks',
       'playlists',
       'settings',
       'settings_history',
-      'setup_state'
+      'setup_state',
+      'track_cache'
     ]);
   });
 
@@ -50,13 +52,13 @@ describe('Database Migrations Integration', () => {
     expect(indexNames).toContain('playlists_window_unique');
   });
 
-  it('should create unique index on genre_cache.artist_name', () => {
+  it('should create unique index on artist_cache.artist_name', () => {
     const indexes = sqlite
-      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='genre_cache'`)
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artist_cache'`)
       .all() as Array<{ name: string }>;
 
     const indexNames = indexes.map(i => i.name);
-    expect(indexNames).toContain('genre_cache_artist_unique');
+    expect(indexNames).toContain('artist_cache_artist_unique');
   });
 
   it('should enforce cascade delete on playlist_tracks', async () => {

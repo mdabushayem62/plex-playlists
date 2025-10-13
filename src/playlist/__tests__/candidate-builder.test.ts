@@ -105,7 +105,7 @@ describe('candidateFromTrack', () => {
     // Final: 0.7 * 1.0 + 0.3 * 1.0 = 0.7 + 0.3 = 1.0
     expect(candidate.recencyWeight).toBe(1.0);
     expect(candidate.fallbackScore).toBe(1.0);
-    expect(candidate.finalScore).toBe(1.0);
+    expect(candidate.finalScore).toBeCloseTo(1.0, 10);
   });
 
   it('handles null last played date', async () => {

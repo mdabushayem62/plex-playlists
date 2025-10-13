@@ -25,7 +25,7 @@ describe('Genre Cache Integration', () => {
     const artistName = 'perturbator';
     const genres = ['synthwave', 'darksynth'];
 
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName,
         genres: JSON.stringify(genres),
@@ -37,8 +37,8 @@ describe('Genre Cache Integration', () => {
     // Retrieve cached genres
     const cached = db
       .select()
-      .from(schema.genreCache)
-      .where(eq(schema.genreCache.artistName, artistName))
+      .from(schema.artistCache)
+      .where(eq(schema.artistCache.artistName, artistName))
       .get();
 
     expect(cached).toBeDefined();
@@ -50,7 +50,7 @@ describe('Genre Cache Integration', () => {
     const artistName = 'carpenter brut';
 
     // First insert
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName,
         genres: JSON.stringify(['synthwave']),
@@ -60,7 +60,7 @@ describe('Genre Cache Integration', () => {
       .run();
 
     // Upsert with new data
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName,
         genres: JSON.stringify(['synthwave', 'darksynth']),
@@ -68,7 +68,7 @@ describe('Genre Cache Integration', () => {
         expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
       })
       .onConflictDoUpdate({
-        target: schema.genreCache.artistName,
+        target: schema.artistCache.artistName,
         set: {
           genres: JSON.stringify(['synthwave', 'darksynth']),
           source: 'spotify',
@@ -79,7 +79,7 @@ describe('Genre Cache Integration', () => {
       .run();
 
     // Verify only one entry exists with updated data
-    const cached = db.select().from(schema.genreCache).all();
+    const cached = db.select().from(schema.artistCache).all();
     expect(cached).toHaveLength(1);
     expect(JSON.parse(cached[0]!.genres)).toEqual(['synthwave', 'darksynth']);
     expect(cached[0]!.source).toBe('spotify');
@@ -89,7 +89,7 @@ describe('Genre Cache Integration', () => {
     const now = Date.now();
 
     // Insert expired entry
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName: 'expired artist',
         genres: JSON.stringify(['test']),
@@ -99,7 +99,7 @@ describe('Genre Cache Integration', () => {
       .run();
 
     // Insert valid entry
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName: 'valid artist',
         genres: JSON.stringify(['test']),
@@ -111,8 +111,8 @@ describe('Genre Cache Integration', () => {
     // Query expired entries
     const expired = db
       .select()
-      .from(schema.genreCache)
-      .where(lt(schema.genreCache.expiresAt, new Date()))
+      .from(schema.artistCache)
+      .where(lt(schema.artistCache.expiresAt, new Date()))
       .all();
 
     expect(expired).toHaveLength(1);
@@ -123,7 +123,7 @@ describe('Genre Cache Integration', () => {
     const now = Date.now();
 
     // Insert multiple expired entries
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values([
         {
           artistName: 'expired1',
@@ -148,21 +148,21 @@ describe('Genre Cache Integration', () => {
 
     // Delete expired entries
     const result = db
-      .delete(schema.genreCache)
-      .where(lt(schema.genreCache.expiresAt, new Date()))
+      .delete(schema.artistCache)
+      .where(lt(schema.artistCache.expiresAt, new Date()))
       .returning()
       .all();
 
     expect(result).toHaveLength(2);
 
     // Verify only valid entry remains
-    const remaining = db.select().from(schema.genreCache).all();
+    const remaining = db.select().from(schema.artistCache).all();
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.artistName).toBe('valid');
   });
 
   it('should support multiple sources for different artists', () => {
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values([
         {
           artistName: 'artist1',
@@ -188,15 +188,15 @@ describe('Genre Cache Integration', () => {
     // Query by source
     const spotifyEntries = db
       .select()
-      .from(schema.genreCache)
-      .where(eq(schema.genreCache.source, 'spotify'))
+      .from(schema.artistCache)
+      .where(eq(schema.artistCache.source, 'spotify'))
       .all();
 
     expect(spotifyEntries).toHaveLength(1);
     expect(spotifyEntries[0]?.artistName).toBe('artist1');
 
     // Verify all sources
-    const allEntries = db.select().from(schema.genreCache).all();
+    const allEntries = db.select().from(schema.artistCache).all();
     const sources = allEntries.map(e => e.source).sort();
     expect(sources).toEqual(['lastfm', 'manual', 'spotify']);
   });
@@ -206,7 +206,7 @@ describe('Genre Cache Integration', () => {
     const lowerArtist = 'the midnight';
     const upperArtist = 'THE MIDNIGHT';
 
-    db.insert(schema.genreCache)
+    db.insert(schema.artistCache)
       .values({
         artistName: lowerArtist,
         genres: JSON.stringify(['synthwave']),
@@ -218,8 +218,8 @@ describe('Genre Cache Integration', () => {
     // Query with lowercase
     const lowerResult = db
       .select()
-      .from(schema.genreCache)
-      .where(eq(schema.genreCache.artistName, lowerArtist))
+      .from(schema.artistCache)
+      .where(eq(schema.artistCache.artistName, lowerArtist))
       .get();
 
     expect(lowerResult).toBeDefined();
@@ -227,8 +227,8 @@ describe('Genre Cache Integration', () => {
     // Query with uppercase should not match (case-sensitive)
     const upperResult = db
       .select()
-      .from(schema.genreCache)
-      .where(eq(schema.genreCache.artistName, upperArtist))
+      .from(schema.artistCache)
+      .where(eq(schema.artistCache.artistName, upperArtist))
       .get();
 
     expect(upperResult).toBeUndefined();
@@ -237,8 +237,8 @@ describe('Genre Cache Integration', () => {
     const normalized = upperArtist.toLowerCase();
     const normalizedResult = db
       .select()
-      .from(schema.genreCache)
-      .where(eq(schema.genreCache.artistName, normalized))
+      .from(schema.artistCache)
+      .where(eq(schema.artistCache.artistName, normalized))
       .get();
 
     expect(normalizedResult).toBeDefined();
