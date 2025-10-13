@@ -1,6 +1,6 @@
 import { subDays } from 'date-fns';
 
-import type { HistoryMetadatum } from '@ctrl/plex';
+import type { HistoryResult } from '@ctrl/plex';
 
 import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
@@ -57,7 +57,7 @@ const isWithinTimeWindow = (date: Date, windowDef: TimeWindowDefinition): boolea
   return hour >= startHour && hour <= endHour;
 };
 
-const extractRatingKey = (metadata: HistoryMetadatum): string | null => {
+const extractRatingKey = (metadata: HistoryResult): string | null => {
   // Use ratingKey directly from the updated @ctrl/plex types
   return metadata.ratingKey || null;
 };
@@ -113,8 +113,8 @@ export const fetchHistoryForWindow = async (
   // Log type breakdown for debugging
   if (history.length > 0) {
     const typeCounts = history
-      .filter((item): item is HistoryMetadatum => item != null && typeof item === 'object')
-      .reduce((acc: Record<string, number>, item: HistoryMetadatum) => {
+      .filter((item): item is HistoryResult => item != null && typeof item === 'object')
+      .reduce((acc: Record<string, number>, item: HistoryResult) => {
         const type = item?.type || 'unknown';
         acc[type] = (acc[type] || 0) + 1;
         return acc;
@@ -155,7 +155,7 @@ export const fetchHistoryForWindow = async (
     {
       window,
       rawCount: history.length,
-      trackCount: history.filter((h: HistoryMetadatum) => h != null && h.type === 'track').length,
+      trackCount: history.filter((h: HistoryResult) => h != null && h.type === 'track').length,
       filteredCount: filtered.length,
       windowFilterApplied: !!timeWindowDef
     },

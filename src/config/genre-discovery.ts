@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { genreCache } from '../db/schema.js';
+import { artistCache } from '../db/schema.js';
 import { logger } from '../logger.js';
 import type { MusicSection, Section } from '@ctrl/plex';
 
@@ -35,11 +35,11 @@ export async function discoverGenres(minArtists = 5, maxPlaylists = 20, exclude:
     // Get all cached genres
     const cachedArtists = await db
       .select({
-        artistName: genreCache.artistName,
-        genres: genreCache.genres,
-        source: genreCache.source
+        artistName: artistCache.artistName,
+        genres: artistCache.genres,
+        source: artistCache.source
       })
-      .from(genreCache);
+      .from(artistCache);
 
     if (cachedArtists.length === 0) {
       logger.warn('no cached genres found for auto-discovery');
@@ -149,10 +149,10 @@ export async function discoverMoods(options: {
     // Get all cached artist moods
     const cachedArtists = await db
       .select({
-        artistName: genreCache.artistName,
-        moods: genreCache.moods
+        artistName: artistCache.artistName,
+        moods: artistCache.moods
       })
-      .from(genreCache);
+      .from(artistCache);
 
     if (cachedArtists.length === 0) {
       logger.warn('no cached moods found for auto-discovery');
@@ -290,9 +290,9 @@ export async function getGenreSummary(): Promise<Map<string, number>> {
   try {
     const cachedArtists = await db
       .select({
-        genres: genreCache.genres
+        genres: artistCache.genres
       })
-      .from(genreCache);
+      .from(artistCache);
 
     for (const artist of cachedArtists) {
       try {
@@ -322,9 +322,9 @@ export async function getMoodSummary(): Promise<Map<string, number>> {
   try {
     const cachedArtists = await db
       .select({
-        moods: genreCache.moods
+        moods: artistCache.moods
       })
-      .from(genreCache);
+      .from(artistCache);
 
     for (const artist of cachedArtists) {
       try {

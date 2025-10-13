@@ -129,7 +129,8 @@ playlistsRouter.get('/builder', async (req, res) => {
     const parsedPlaylists = dbPlaylists.map(p => ({
       ...p,
       genres: JSON.parse(p.genres) as string[],
-      moods: JSON.parse(p.moods) as string[]
+      moods: JSON.parse(p.moods) as string[],
+      scoringStrategy: p.scoringStrategy || 'quality' // Ensure backward compatibility
     }));
 
     // Get available genres and moods from cache
@@ -168,45 +169,23 @@ playlistsRouter.get('/builder', async (req, res) => {
  */
 playlistsRouter.post('/builder', async (req, res) => {
   try {
-    const { name, genres, moods, targetSize, description } = req.body;
+    const { name, genres, moods, targetSize, description, scoringStrategy } = req.body;
 
-    // Validation
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({ error: 'Name is required' });
+    // Import validation functions from runner
+    const { validateCustomPlaylistConfig, customPlaylistNameExists } = await import('../../playlist/custom-playlist-runner.js');
+
+    // Validate configuration
+    const validation = validateCustomPlaylistConfig({ name, genres, moods, targetSize, description, scoringStrategy });
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
     }
 
-    if (!Array.isArray(genres) || !Array.isArray(moods)) {
-      return res.status(400).json({ error: 'Genres and moods must be arrays' });
-    }
-
-    if (genres.length > 2) {
-      return res.status(400).json({ error: 'Maximum 2 genres allowed' });
-    }
-
-    if (moods.length > 2) {
-      return res.status(400).json({ error: 'Maximum 2 moods allowed' });
-    }
-
-    if (genres.length === 0 && moods.length === 0) {
-      return res.status(400).json({ error: 'At least one genre or mood is required' });
-    }
-
-    if (targetSize && (targetSize < 10 || targetSize > 200)) {
-      return res.status(400).json({ error: 'Target size must be between 10 and 200' });
+    // Check for duplicate name
+    if (await customPlaylistNameExists(name.trim())) {
+      return res.status(400).json({ error: 'A playlist with this name already exists' });
     }
 
     const db = getDb();
-
-    // Check for duplicate name
-    const existing = await db
-      .select()
-      .from(customPlaylists)
-      .where(eq(customPlaylists.name, name.trim()))
-      .limit(1);
-
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'A playlist with this name already exists' });
-    }
 
     // Insert new playlist
     await db.insert(customPlaylists).values({
@@ -215,6 +194,7 @@ playlistsRouter.post('/builder', async (req, res) => {
       moods: JSON.stringify(moods),
       targetSize: targetSize || 50,
       description: description || null,
+      scoringStrategy: scoringStrategy || 'quality',
       enabled: true
     });
 
@@ -222,6 +202,20 @@ playlistsRouter.post('/builder', async (req, res) => {
   } catch (error) {
     console.error('Create playlist error:', error);
     res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+/**
+ * Get available scoring strategies
+ */
+playlistsRouter.get('/strategies', async (_req, res) => {
+  try {
+    const { getAllStrategies } = await import('../../scoring/config.js');
+    const strategies = getAllStrategies();
+    res.json({ success: true, strategies });
+  } catch (error) {
+    console.error('Get strategies error:', error);
+    res.status(500).json({ error: 'Failed to get strategies' });
   }
 });
 
@@ -420,6 +414,23 @@ playlistsRouter.get('/:id', async (req, res) => {
       .map(([genre, count]) => ({ genre, count, percentage: (count / tracks.length) * 100 }))
       .sort((a, b) => b.count - a.count);
 
+    // Get custom playlist data if this is a custom playlist
+    let customPlaylistData = null;
+    if (playlist[0].window.startsWith('custom-')) {
+      // Extract playlist name from window (format: custom-{name-slug})
+      const nameSlug = playlist[0].window.replace(/^custom-/, '');
+      const customPlaylist = await db
+        .select()
+        .from(customPlaylists)
+        .limit(100);
+
+      // Find matching custom playlist by comparing slugified names
+      customPlaylistData = customPlaylist.find(cp => {
+        const slug = cp.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        return slug === nameSlug;
+      });
+    }
+
     // Render TSX component
     const { PlaylistDetailPage } = await import(getViewPath('playlists/detail.tsx'));
     const html = PlaylistDetailPage({
@@ -429,6 +440,11 @@ playlistsRouter.get('/:id', async (req, res) => {
       genreStats,
       prevPlaylist,
       nextPlaylist,
+      customPlaylistData: customPlaylistData ? {
+        scoringStrategy: customPlaylistData.scoringStrategy || 'quality',
+        genres: JSON.parse(customPlaylistData.genres),
+        moods: JSON.parse(customPlaylistData.moods)
+      } : null,
       setupComplete,
       page: 'playlists',
       breadcrumbs: [
@@ -443,6 +459,58 @@ playlistsRouter.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Playlist detail error:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * Delete a generated playlist
+ */
+playlistsRouter.delete('/:id', async (req, res) => {
+  try {
+    const playlistId = parseInt(req.params.id, 10);
+
+    if (isNaN(playlistId)) {
+      return res.status(400).json({ error: 'Invalid playlist ID' });
+    }
+
+    const db = getDb();
+
+    // Get playlist to check if it exists and get Plex rating key
+    const playlist = await db
+      .select()
+      .from(playlists)
+      .where(eq(playlists.id, playlistId))
+      .limit(1);
+
+    if (playlist.length === 0) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+
+    // Delete from Plex if it exists
+    if (playlist[0].plexRatingKey) {
+      try {
+        const { deletePlaylist } = await import('../../plex/playlists.js');
+        await deletePlaylist(playlist[0].plexRatingKey);
+      } catch (error) {
+        console.warn('Failed to delete playlist from Plex:', error);
+        // Continue with database deletion even if Plex deletion fails
+      }
+    }
+
+    // Delete tracks first (foreign key constraint)
+    await db
+      .delete(playlistTracks)
+      .where(eq(playlistTracks.playlistId, playlistId));
+
+    // Delete playlist
+    await db
+      .delete(playlists)
+      .where(eq(playlists.id, playlistId));
+
+    res.json({ success: true, message: 'Playlist deleted successfully' });
+  } catch (error) {
+    console.error('Delete playlist error:', error);
+    res.status(500).json({ error: 'Failed to delete playlist' });
   }
 });
 

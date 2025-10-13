@@ -368,42 +368,6 @@ export function ConfigIndexPage(props: ConfigIndexPageProps): JSX.Element {
           </small>
         </article>
 
-        {/* Quick Actions */}
-        <article class="config-card">
-          <div class="config-card-header">
-            <h3 class="config-card-title">
-              <span class="config-card-icon">⚡</span>
-              Quick Actions
-            </h3>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-            <a href="/config/settings" style="text-decoration: none;">
-              <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); transition: border-color 0.2s;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⚙️</div>
-                <div style="font-weight: 500;">All Settings</div>
-                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">Edit all configuration</div>
-              </div>
-            </a>
-
-            <a href="/config/playlists" style="text-decoration: none;">
-              <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); transition: border-color 0.2s;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">🎵</div>
-                <div style="font-weight: 500;">Playlists</div>
-                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">Genre playlists config</div>
-              </div>
-            </a>
-
-            <a href="/actions/cache" style="text-decoration: none;">
-              <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); transition: border-color 0.2s;">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">💾</div>
-                <div style="font-weight: 500;">Cache</div>
-                <div style="font-size: 0.875rem; color: var(--pico-muted-color); margin-top: 0.25rem;">Genre cache management</div>
-              </div>
-            </a>
-          </div>
-        </article>
-
         {/* Setup Wizard & Advanced */}
         <article class="config-card">
           <div class="config-card-header">

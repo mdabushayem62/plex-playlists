@@ -32,6 +32,8 @@ export type SettingKey =
   | 'exploration_rate'
   | 'exclusion_days'
   | 'discovery_days'
+  // Genre Configuration
+  | 'genre_ignore_list'
   // Scheduling
   | 'daily_playlists_cron'
   | 'discovery_cron'
@@ -113,6 +115,18 @@ export async function getEffectiveConfig() {
     return dbValue ? parseFloat(dbValue) : envValue;
   };
 
+  // Helper to parse JSON array
+  const getJsonArray = (dbKey: string, defaultValue: string[]): string[] => {
+    const dbValue = dbSettings[dbKey];
+    if (!dbValue) return defaultValue;
+    try {
+      const parsed = JSON.parse(dbValue);
+      return Array.isArray(parsed) ? parsed : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
   return {
     // Plex
     plexBaseUrl: dbSettings.plex_base_url || APP_ENV.PLEX_BASE_URL,
@@ -135,6 +149,9 @@ export async function getEffectiveConfig() {
     exclusionDays: getNumber('exclusion_days', APP_ENV.EXCLUSION_DAYS),
     discoveryDays: getNumber('discovery_days', APP_ENV.DISCOVERY_DAYS),
 
+    // Genre Configuration
+    genreIgnoreList: getJsonArray('genre_ignore_list', []),
+
     // Scheduling
     dailyPlaylistsCron: dbSettings.daily_playlists_cron || APP_ENV.DAILY_PLAYLISTS_CRON,
     discoveryCron: dbSettings.discovery_cron || APP_ENV.DISCOVERY_CRON,
@@ -150,12 +167,12 @@ export async function getEffectiveConfig() {
  */
 export interface SettingMetadata {
   key: SettingKey;
-  value: string | number | boolean;
+  value: string | number | boolean | string[];
   source: 'database' | 'env' | 'default';
   type: 'text' | 'number' | 'url' | 'password' | 'json' | 'cron';
   category: 'plex' | 'api' | 'scoring' | 'scheduling' | 'playlists';
   description: string;
-  defaultValue: string | number;
+  defaultValue: string | number | string[];
   validation?: {
     required?: boolean;
     min?: number;
@@ -375,6 +392,17 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
         min: 1,
         max: 365
       }
+    },
+
+    // Genre Configuration
+    genre_ignore_list: {
+      key: 'genre_ignore_list',
+      value: effectiveConfig.genreIgnoreList,
+      source: getSource('genre_ignore_list'),
+      type: 'json',
+      category: 'playlists',
+      description: 'Genres to filter out during playlist generation (meta-genres like "electronic", "pop/rock")',
+      defaultValue: []
     },
 
     // Scheduling

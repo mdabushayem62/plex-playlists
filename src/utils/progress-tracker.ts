@@ -112,6 +112,29 @@ class ProgressTracker extends EventEmitter {
   }
 
   /**
+   * Update progress for a job (object-based API)
+   * Alternative API that accepts an object with current, total, and message
+   */
+  async update(
+    jobId: number,
+    update: { current: number; total?: number; message: string }
+  ): Promise<void> {
+    const progress = this.jobs.get(jobId);
+    if (!progress) {
+      logger.warn({ jobId }, 'attempted to update progress for untracked job');
+      return;
+    }
+
+    // Update total if provided (allows dynamic total adjustment)
+    if (update.total !== undefined) {
+      progress.total = update.total;
+    }
+
+    // Delegate to updateProgress for the rest
+    await this.updateProgress(jobId, update.current, update.message);
+  }
+
+  /**
    * Increment source count for a job
    * Used to track which API source was used for genre enrichment
    */

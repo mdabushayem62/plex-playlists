@@ -94,15 +94,15 @@ export function SchedulingPage(props: SchedulingPageProps): JSX.Element {
 
         <div id="save-response" style="margin-top: 1rem;"></div>
 
-        {/* Genre Playlists */}
+        {/* Custom Playlists */}
         <section style="margin-top: 3rem; margin-bottom: 2rem;">
-          <h3>Genre Playlists</h3>
+          <h3>Custom Playlists</h3>
           <div style="background: var(--pico-background-color); padding: 1rem; border-radius: 0.25rem;">
             <p style="margin: 0 0 0.5rem 0;">
-              Genre playlists are configured separately.
+              Custom genre/mood playlists are managed through the playlist builder.
             </p>
             <p style="margin: 0;">
-              <a href="/config/playlists">Manage playlist configuration →</a>
+              <a href="/playlists/builder">Create & manage custom playlists →</a>
             </p>
           </div>
         </section>

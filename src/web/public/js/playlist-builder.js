@@ -99,6 +99,7 @@ async function createPlaylist(event) {
     genres: Array.from(selectedGenres),
     moods: Array.from(selectedMoods),
     targetSize: parseInt(formData.get('targetSize')),
+    scoringStrategy: formData.get('scoringStrategy') || 'quality',
     description: formData.get('description') || null
   };
 
@@ -308,6 +309,7 @@ async function createFromRecommendation(recommendation) {
     genres: recommendation.genres,
     moods: recommendation.moods,
     targetSize: recommendation.targetSize,
+    scoringStrategy: recommendation.scoringStrategy || 'quality',
     description: recommendation.description
   };
 

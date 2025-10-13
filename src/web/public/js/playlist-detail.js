@@ -80,6 +80,64 @@ function confirmRegenerate() {
 }
 
 /**
+ * Delete playlist with confirmation dialog
+ */
+function confirmDelete() {
+  const btn = document.getElementById('deleteBtn');
+  const originalText = btn.innerHTML;
+
+  // First click: show confirmation
+  if (btn.innerHTML === originalText) {
+    btn.innerHTML = '⚠️ Confirm Delete?';
+    btn.style.background = 'var(--pico-del-color)';
+    btn.setAttribute('data-confirming', 'true');
+
+    // Reset after 3 seconds if not confirmed
+    setTimeout(() => {
+      if (btn.getAttribute('data-confirming') === 'true') {
+        btn.innerHTML = originalText;
+        btn.style.background = '';
+        btn.removeAttribute('data-confirming');
+      }
+    }, 3000);
+  }
+  // Second click: execute deletion
+  else if (btn.getAttribute('data-confirming') === 'true') {
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Deleting...';
+    btn.style.background = '';
+    btn.removeAttribute('data-confirming');
+
+    // Get playlist ID from button data attribute
+    const playlistId = btn.getAttribute('data-playlist-id');
+
+    // Call the delete endpoint
+    fetch(`/playlists/${playlistId}`, { method: 'DELETE' })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          btn.innerHTML = '✓ Deleted';
+          showToast('Playlist deleted successfully! Redirecting...', 'success');
+          setTimeout(() => {
+            window.location.href = '/playlists';
+          }, 1500);
+        } else {
+          throw new Error(data.error || 'Deletion failed');
+        }
+      })
+      .catch(error => {
+        btn.innerHTML = '✗ Failed';
+        btn.disabled = false;
+        showToast('Failed to delete playlist: ' + error.message, 'error');
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.style.background = '';
+        }, 3000);
+      });
+  }
+}
+
+/**
  * Keyboard navigation for previous/next playlists
  */
 document.addEventListener('keydown', (e) => {
@@ -100,5 +158,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Expose function globally
+// Expose functions globally
 window.confirmRegenerate = confirmRegenerate;
+window.confirmDelete = confirmDelete;

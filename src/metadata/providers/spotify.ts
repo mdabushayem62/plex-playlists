@@ -285,9 +285,10 @@ export class SpotifyClient {
   }
 
   /**
-   * Get artist info including genres, popularity, and followers
+   * Get artist info including genres, popularity, followers, and Spotify ID
    */
   async getArtistInfo(artistName: string): Promise<{
+    id: string;
     name: string;
     genres: string[];
     popularity: number;
@@ -299,6 +300,7 @@ export class SpotifyClient {
     }
 
     return {
+      id: artist.id,
       name: artist.name,
       genres: artist.genres || [],
       popularity: artist.popularity,
@@ -379,21 +381,21 @@ export class SpotifyClient {
           return null;
         }
 
-        // Fetch full album details to get genres (search results may not include genres)
-        const albumDetails = await this.getAlbumById(bestMatch.id);
-
+        // Note: Spotify album search results rarely include genres (usually empty)
+        // Genres typically come from the artist, not the album
+        // Skip the redundant getAlbumById call to save 50% of API calls
         logger.debug(
           {
             artistName,
             albumName,
             spotifyAlbum: bestMatch.name,
             spotifyArtist: bestMatch.artists[0]?.name,
-            genres: albumDetails?.genres || []
+            genres: bestMatch.genres || []
           },
           'album found on spotify'
         );
 
-        return albumDetails || bestMatch;
+        return bestMatch;
       } catch (error) {
         const isRateLimit = (error as { response?: { statusCode?: number } }).response?.statusCode === 429;
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -451,6 +453,9 @@ export class SpotifyClient {
   /**
    * Get album details by Spotify ID
    * Used to fetch full album info including genres
+   *
+   * @deprecated Spotify albums rarely have specific genres (inherit from artist)
+   * Kept for potential future use but no longer called in normal flow
    */
   async getAlbumById(albumId: string): Promise<SpotifyAlbum | null> {
     if (!albumId || !this.enabled) {

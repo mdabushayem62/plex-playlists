@@ -468,7 +468,7 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
           >
             <p style="margin: 0;">
               <small>
-                Plex Playlist Enhancer v0.1.0 •{' '}
+                Plex Playlist Enhancer •{' '}
                 <a href="https://github.com/aceofaces/plex-playlists">GitHub</a>
               </small>
             </p>

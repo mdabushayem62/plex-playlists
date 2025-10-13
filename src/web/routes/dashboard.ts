@@ -4,10 +4,11 @@
 
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
-import { playlists, jobRuns, genreCache, setupState } from '../../db/schema.js';
+import { playlists, jobRuns, setupState } from '../../db/schema.js';
 import { desc } from 'drizzle-orm';
 import { TIME_WINDOWS } from '../../windows.js';
 import { getViewPath } from '../server.js';
+import { getCacheStats } from '../../cache/cache-cli.js';
 
 export const dashboardRouter = Router();
 
@@ -39,15 +40,12 @@ dashboardRouter.get('/', async (req, res) => {
       .orderBy(desc(jobRuns.startedAt))
       .limit(20);
 
-    // Get cache stats
-    const cacheEntries = await db.select().from(genreCache);
+    // Get cache stats from cache service
+    const stats = await getCacheStats();
     const cacheStats = {
-      total: cacheEntries.length,
-      bySource: cacheEntries.reduce((acc, entry) => {
-        acc[entry.source] = (acc[entry.source] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      expired: cacheEntries.filter(e => e.expiresAt && e.expiresAt < new Date()).length
+      total: stats.artists.totalEntries,
+      bySource: stats.artists.bySource,
+      expired: stats.artists.expired
     };
 
     // Render TSX component

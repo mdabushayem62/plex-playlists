@@ -13,6 +13,7 @@ export interface CustomPlaylist {
   moods: string[];
   enabled: boolean;
   targetSize: number;
+  scoringStrategy: string;
   description?: string | null;
   createdAt: Date;
 }
@@ -213,6 +214,23 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
               max="200"
             />
 
+            {/* Scoring Strategy */}
+            <label for="scoring-strategy" style="margin-top: 1rem;">
+              Scoring Strategy <small style="color: var(--pico-muted-color);">(How tracks are ranked)</small>
+            </label>
+            <select id="scoring-strategy" name="scoringStrategy">
+              <option value="quality" selected>Quality - Focus on ratings and play count (recommended)</option>
+              <option value="balanced">Balanced - Mix of recency and quality</option>
+              <option value="discovery">Discovery - Surface forgotten gems</option>
+              <option value="throwback">Throwback - Nostalgic tracks from the past</option>
+            </select>
+            <small style="display: block; margin-top: 0.25rem; color: var(--pico-muted-color); font-size: 0.75rem;">
+              💡 <strong>Quality</strong>: Prioritizes your highest-rated and most-played tracks.
+              <strong>Balanced</strong>: Includes recently played favorites.
+              <strong>Discovery</strong>: Surfaces long-forgotten tracks.
+              <strong>Throwback</strong>: Brings back nostalgic tracks from 2-5 years ago.
+            </small>
+
             {/* Description */}
             <label for="description">
               Description <small style="color: var(--pico-muted-color);">(Optional)</small>
@@ -304,8 +322,9 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
                       </div>
 
                       {/* Metadata */}
-                      <div style="display: flex; gap: 1rem; font-size: 0.875rem; color: var(--pico-muted-color);">
+                      <div style="display: flex; gap: 1rem; font-size: 0.875rem; color: var(--pico-muted-color); flex-wrap: wrap;">
                         <span>Target: {playlist.targetSize} tracks</span>
+                        <span>Strategy: <span style="text-transform: capitalize;">{playlist.scoringStrategy || 'quality'}</span></span>
                         <span>Created: {new Date(playlist.createdAt).toLocaleDateString()}</span>
                       </div>
 

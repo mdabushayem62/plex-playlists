@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
-import { setupState, genreCache } from '../../db/schema.js';
+import { setupState } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { APP_ENV } from '../../config.js';
 import { setSetting, getEffectiveConfig } from '../../db/settings-service.js';
@@ -12,6 +12,8 @@ import { PlexServer } from '@ctrl/plex';
 import { importRatingsFromCSVs } from '../../import/importer-fast.js';
 import { existsSync } from 'fs';
 import { getViewPath } from '../server.js';
+import { getCacheStats } from '../../cache/cache-cli.js';
+import { getGenreSummary } from '../../config/genre-discovery.js';
 
 export const setupRouter = Router();
 
@@ -293,33 +295,17 @@ setupRouter.post('/import/run', async (req, res) => {
 setupRouter.get('/library-analysis', async (req, res) => {
   try {
     const state = await getSetupState();
-    const db = getDb();
 
-    // Get current cache stats
-    const cacheEntries = await db.select().from(genreCache);
+    // Get current cache stats from cache service
+    const stats = await getCacheStats();
     const cacheStats = {
-      total: cacheEntries.length,
-      bySource: cacheEntries.reduce((acc, entry) => {
-        acc[entry.source] = (acc[entry.source] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>)
+      total: stats.artists.totalEntries,
+      bySource: stats.artists.bySource
     };
 
-    // Get genre statistics from cache
-    const genreMap = new Map<string, number>();
-    cacheEntries.forEach(entry => {
-      try {
-        const genres = JSON.parse(entry.genres);
-        genres.forEach((genre: string) => {
-          genreMap.set(genre, (genreMap.get(genre) || 0) + 1);
-        });
-      } catch {
-        // Skip invalid JSON
-      }
-    });
-
-    // Sort by frequency
-    const topGenres = Array.from(genreMap.entries())
+    // Get genre statistics from genre discovery service
+    const genreSummaryMap = await getGenreSummary();
+    const topGenres = Array.from(genreSummaryMap.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 30)
       .map(([genre, count]) => ({ genre, count }));
@@ -350,7 +336,7 @@ setupRouter.get('/library-analysis', async (req, res) => {
       state,
       cacheStats,
       topGenres,
-      totalGenres: genreMap.size,
+      totalGenres: genreSummaryMap.size,
       importResults,
       apiKeysConfigured
     });
@@ -412,28 +398,16 @@ setupRouter.post('/api-keys/next', async (req, res) => {
 setupRouter.get('/playlists', async (req, res) => {
   try {
     const state = await getSetupState();
-    const db = getDb();
 
-    // Get genre statistics from cache for preview
-    const cacheEntries = await db.select().from(genreCache);
-    const genreMap = new Map<string, number>();
-
-    cacheEntries.forEach(entry => {
-      try {
-        const genres = JSON.parse(entry.genres);
-        genres.forEach((genre: string) => {
-          genreMap.set(genre, (genreMap.get(genre) || 0) + 1);
-        });
-      } catch {
-        // Skip invalid JSON
-      }
-    });
-
-    // Get top genres for preview (sorted by artist count)
-    const topGenres = Array.from(genreMap.entries())
+    // Get genre statistics from genre discovery service
+    const genreSummaryMap = await getGenreSummary();
+    const topGenres = Array.from(genreSummaryMap.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([genre, artistCount]) => ({ genre, artistCount }));
+
+    // Get total artist count from cache stats
+    const cacheStats = await getCacheStats();
 
     // Get effective config for schedule info
     const effectiveConfig = await getEffectiveConfig();
@@ -446,8 +420,8 @@ setupRouter.get('/playlists', async (req, res) => {
       currentStepIndex: 3,
       state,
       topGenres,
-      totalGenres: genreMap.size,
-      totalArtists: cacheEntries.length,
+      totalGenres: genreSummaryMap.size,
+      totalArtists: cacheStats.artists.totalEntries,
       dailyPlaylistsCron: effectiveConfig.dailyPlaylistsCron
     });
 

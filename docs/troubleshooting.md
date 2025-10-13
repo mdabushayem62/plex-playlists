@@ -233,7 +233,7 @@ docker-compose logs | grep "rate limit"
 grep "rate limit" /var/log/plex-playlists.log
 ```
 
-### Genre Cache Issues
+### Artist & Album Cache Issues
 
 **Cache not populating:**
 ```bash

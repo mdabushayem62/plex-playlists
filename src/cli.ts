@@ -31,12 +31,29 @@ const usage = `Usage:
     Custom/cache windows: custom-playlists, cache-warm, cache-refresh
   plex-playlists run-all                       Run all three daily playlists sequentially
   plex-playlists history diagnose              Test Plex history tracking and provide recommendations
+
+Metadata Cache (for enrichment):
   plex-playlists cache warm [--dry-run] [--concurrency=N]
-                                               Pre-populate artist genre cache
+                                               Pre-populate artist cache
   plex-playlists cache warm-albums [--dry-run] [--concurrency=N]
-                                               Pre-populate album genre cache (more data-intensive)
-  plex-playlists cache stats                   Show cache statistics
-  plex-playlists cache clear [--all]           Clear expired (or all) cache entries
+                                               Pre-populate album cache (more data-intensive)
+  plex-playlists cache stats                   Show metadata cache statistics
+  plex-playlists cache clear [--all]           Clear expired (or all) metadata cache entries
+
+Track Cache (for quality playlists):
+  plex-playlists cache sync-library [--batch-size=N] [--max-tracks=N]
+                                               Sync entire library to track cache (initial setup, ~30-45min)
+  plex-playlists cache refresh-stats [--limit=N]
+                                               Refresh expired track stats (daily maintenance, ~2-3min)
+  plex-playlists cache sync-recent [--days=N]  Sync recently added tracks (detect new additions)
+  plex-playlists cache health                  Show track cache health statistics
+
+AudioMuse Integration (audio features):
+  plex-playlists audiomuse sync [--dry-run] [--force] [--concurrency=N]
+                                               Sync audio features from AudioMuse to Plex tracks
+  plex-playlists audiomuse stats               Show AudioMuse sync statistics
+
+Other:
   plex-playlists import <csv-dir> [--dry-run]  Import ratings from CSV files`;
 
 const args = process.argv.slice(2);
@@ -183,7 +200,7 @@ async function main(): Promise<void> {
 
       try {
         console.log(
-          `\nWarming genre cache for all Plex artists (concurrency: ${concurrency})${dryRun ? ' [DRY RUN]' : ''}...\n`
+          `\nWarming artist cache for all Plex artists (concurrency: ${concurrency})${dryRun ? ' [DRY RUN]' : ''}...\n`
         );
 
         const result = await warmCache({
@@ -234,7 +251,7 @@ async function main(): Promise<void> {
 
       try {
         console.log(
-          `\nWarming album genre cache for all Plex albums (concurrency: ${concurrency})${dryRun ? ' [DRY RUN]' : ''}...\n`
+          `\nWarming album cache for all Plex albums (concurrency: ${concurrency})${dryRun ? ' [DRY RUN]' : ''}...\n`
         );
 
         const result = await warmAlbumCache({
@@ -274,7 +291,7 @@ async function main(): Promise<void> {
       try {
         const stats = await getCacheStats();
 
-        console.log('\n=== Genre Cache Statistics ===');
+        console.log('\n=== Metadata Cache Statistics ===');
 
         console.log('\nArtist Cache:');
         console.log(`  Total Entries: ${stats.artists.totalEntries}`);
@@ -330,12 +347,298 @@ async function main(): Promise<void> {
       return;
     }
 
+    // ========== TRACK CACHE COMMANDS ==========
+
+    if (subcommand === 'sync-library') {
+      const batchSizeArg = args.find(a => a.startsWith('--batch-size='));
+      const batchSize = batchSizeArg ? parseInt(batchSizeArg.split('=')[1], 10) : 50;
+
+      const maxTracksArg = args.find(a => a.startsWith('--max-tracks='));
+      const maxTracks = maxTracksArg ? parseInt(maxTracksArg.split('=')[1], 10) : undefined;
+
+      if (isNaN(batchSize) || batchSize < 1) {
+        console.error('Error: Invalid batch-size value. Must be a positive integer.');
+        process.exitCode = 1;
+        return;
+      }
+
+      if (maxTracks !== undefined && (isNaN(maxTracks) || maxTracks < 1)) {
+        console.error('Error: Invalid max-tracks value. Must be a positive integer.');
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        const { syncLibrary } = await import('./cache/track-cache-service.js');
+
+        console.log('\n=== Track Cache: Full Library Sync ===');
+        console.log(`Batch size: ${batchSize} tracks per batch`);
+        console.log(`Max tracks: ${maxTracks || 'unlimited'}`);
+        console.log('\nThis may take 30-45 minutes for a large library...\n');
+
+        let lastUpdate = Date.now();
+        await syncLibrary({
+          batchSize,
+          maxTracks,
+          onProgress: (current, total) => {
+            const now = Date.now();
+            // Throttle console updates to every 500ms
+            if (now - lastUpdate > 500) {
+              const percent = ((current / total) * 100).toFixed(1);
+              const eta = total > current
+                ? Math.ceil(((total - current) / current) * (now - lastUpdate) / 1000)
+                : 0;
+              process.stdout.write(
+                `\rProgress: ${current}/${total} tracks (${percent}%) - ETA: ${eta}s    `
+              );
+              lastUpdate = now;
+            }
+          }
+        });
+
+        console.log('\n');
+        console.log('✓ Library sync completed successfully');
+        console.log('\nNext steps:');
+        console.log('  - Run "plex-playlists cache health" to verify');
+        console.log('  - Track cache will auto-refresh daily (stats refresh at 2am)');
+        console.log('  - Use quality playlists to leverage the cache\n');
+      } catch (error) {
+        console.error('\n✗ Library sync failed:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+        resetPlexServer();
+      }
+
+      return;
+    }
+
+    if (subcommand === 'refresh-stats') {
+      const limitArg = args.find(a => a.startsWith('--limit='));
+      const limit = limitArg ? parseInt(limitArg.split('=')[1], 10) : 5000;
+
+      if (isNaN(limit) || limit < 1) {
+        console.error('Error: Invalid limit value. Must be a positive integer.');
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        const { refreshExpiredStats } = await import('./cache/track-cache-service.js');
+
+        console.log('\n=== Track Cache: Refresh Expired Stats ===');
+        console.log(`Limit: ${limit} tracks`);
+        console.log('\nRefreshing...\n');
+
+        await refreshExpiredStats({
+          limit
+        });
+
+        console.log('\n');
+        console.log('✓ Stats refresh completed successfully\n');
+      } catch (error) {
+        console.error('\n✗ Stats refresh failed:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+        resetPlexServer();
+      }
+
+      return;
+    }
+
+    if (subcommand === 'sync-recent') {
+      const daysArg = args.find(a => a.startsWith('--days='));
+      const days = daysArg ? parseInt(daysArg.split('=')[1], 10) : 1;
+
+      if (isNaN(days) || days < 1) {
+        console.error('Error: Invalid days value. Must be a positive integer.');
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        const { syncRecentlyAdded } = await import('./cache/track-cache-service.js');
+
+        console.log(`\nSyncing tracks added in last ${days} day(s)...`);
+        await syncRecentlyAdded(days);
+        console.log('✓ Recently added tracks synced successfully\n');
+      } catch (error) {
+        console.error('✗ Sync failed:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+        resetPlexServer();
+      }
+
+      return;
+    }
+
+    if (subcommand === 'health') {
+      try {
+        const { getCacheHealth } = await import('./cache/track-cache-service.js');
+
+        console.log('\n=== Track Cache Health ===');
+        const health = await getCacheHealth();
+
+        console.log('\nOverview:');
+        console.log(`  Total Tracks: ${health.totalTracks.toLocaleString()}`);
+        console.log(`  Coverage: ${health.coverage.toFixed(1)}%`);
+        console.log(`  Average Age: ${health.avgAge.toFixed(1)} days`);
+
+        console.log('\nFreshness:');
+        console.log(`  Stale Static Metadata: ${health.staleStatic.toLocaleString()}`);
+        console.log(`  Stale Stats: ${health.staleStats.toLocaleString()}`);
+
+        console.log('\nQuality Breakdown:');
+        console.log(`  High-Rated (>=8 stars): ${health.byQuality.highRated.toLocaleString()}`);
+        console.log(`  Unrated: ${health.byQuality.unrated.toLocaleString()}`);
+        console.log(`  Unplayed: ${health.byQuality.unplayed.toLocaleString()}`);
+
+        if (health.totalTracks === 0) {
+          console.log('\n⚠️  Track cache is empty. Run "plex-playlists cache sync-library" to populate it.');
+        } else if (health.staleStats > health.totalTracks * 0.1) {
+          console.log(`\n⚠️  ${((health.staleStats / health.totalTracks) * 100).toFixed(1)}% of tracks have stale stats.`);
+          console.log('   Run "plex-playlists cache refresh-stats" to refresh.');
+        } else {
+          console.log('\n✓ Cache health looks good!');
+        }
+
+        console.log('');
+      } catch (error) {
+        console.error('✗ Failed to get cache health:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+      }
+
+      return;
+    }
+
     console.error(`Error: Unknown cache subcommand '${subcommand}'`);
     console.error('\nAvailable subcommands:');
-    console.error('  warm         - Pre-populate artist genre cache');
-    console.error('  warm-albums  - Pre-populate album genre cache (more data-intensive)');
-    console.error('  stats        - Show cache statistics');
-    console.error('  clear        - Clear expired or all cache entries');
+    console.error('  Metadata Cache:');
+    console.error('    warm         - Pre-populate artist cache');
+    console.error('    warm-albums  - Pre-populate album cache');
+    console.error('    stats        - Show metadata cache statistics');
+    console.error('    clear        - Clear expired or all metadata cache entries');
+    console.error('\n  Track Cache:');
+    console.error('    sync-library    - Sync entire library to track cache');
+    console.error('    refresh-stats   - Refresh expired track stats');
+    console.error('    sync-recent     - Sync recently added tracks');
+    console.error('    health          - Show track cache health');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'audiomuse') {
+    const subcommand = args[1];
+
+    if (subcommand === 'sync') {
+      const dryRun = args.includes('--dry-run');
+      const forceResync = args.includes('--force');
+      const concurrencyArg = args.find(a => a.startsWith('--concurrency='));
+      const concurrency = concurrencyArg
+        ? parseInt(concurrencyArg.split('=')[1], 10)
+        : 5;
+
+      if (isNaN(concurrency) || concurrency < 1) {
+        console.error('Error: Invalid concurrency value. Must be a positive integer.');
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        const { syncAudioFeatures } = await import('./audiomuse/sync-service.js');
+        const { closeAudioMuseClient } = await import('./audiomuse/client.js');
+
+        console.log('\n=== AudioMuse Audio Features Sync ===');
+        console.log(`Concurrency: ${concurrency}`);
+        console.log(`Mode: ${dryRun ? 'DRY RUN' : forceResync ? 'FORCE RESYNC' : 'INCREMENTAL'}`);
+        console.log('\nThis may take a while for large libraries...\n');
+
+        const result = await syncAudioFeatures({
+          dryRun,
+          forceResync,
+          concurrency,
+          onProgress: (current, total, message) => {
+            if (current % 50 === 0 || current === total) {
+              const percent = total > 0 ? ((current / total) * 100).toFixed(1) : '0.0';
+              process.stdout.write(`\r${message} (${percent}%)    `);
+            }
+          }
+        });
+
+        console.log('\n');
+        console.log('=== Sync Results ===');
+        console.log(`Total tracks in AudioMuse: ${result.totalAudioMuseTracks}`);
+        console.log(`✓ Matched: ${result.matched}`);
+        console.log(`✗ Failed: ${result.failed}`);
+        console.log(`⏭  Skipped (already synced): ${result.skipped}`);
+        console.log(`⏱  Duration: ${(result.duration / 1000).toFixed(1)}s`);
+
+        if (dryRun) {
+          console.log('\n[DRY RUN] No audio features were written to database.');
+          console.log('Run without --dry-run to apply changes.');
+        }
+
+        console.log('');
+        await closeAudioMuseClient();
+      } catch (error) {
+        console.error('\n✗ AudioMuse sync failed:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+        resetPlexServer();
+      }
+
+      return;
+    }
+
+    if (subcommand === 'stats') {
+      try {
+        const { getSyncStats } = await import('./audiomuse/sync-service.js');
+        const { getAudioMuseStats, closeAudioMuseClient } = await import('./audiomuse/client.js');
+
+        console.log('\n=== AudioMuse Statistics ===');
+
+        const audioMuseStats = await getAudioMuseStats();
+        console.log('\nAudioMuse Database:');
+        console.log(`  Total tracks: ${audioMuseStats.totalTracks.toLocaleString()}`);
+        console.log(`  Total artists: ${audioMuseStats.totalArtists.toLocaleString()}`);
+        console.log(`  Tempo range: ${audioMuseStats.tempo.min.toFixed(1)} - ${audioMuseStats.tempo.max.toFixed(1)} BPM (avg: ${audioMuseStats.tempo.avg.toFixed(1)})`);
+        console.log(`  Energy range: ${(audioMuseStats.energy.min * 100).toFixed(1)}% - ${(audioMuseStats.energy.max * 100).toFixed(1)}% (avg: ${(audioMuseStats.energy.avg * 100).toFixed(1)}%)`);
+
+        const syncStats = await getSyncStats();
+        console.log('\nSync Status:');
+        console.log(`  Tracks synced to Plex: ${syncStats.totalSynced.toLocaleString()}`);
+        console.log(`  Coverage: ${syncStats.coveragePercent.toFixed(1)}%`);
+
+        if (syncStats.totalSynced === 0) {
+          console.log('\n⚠️  No tracks synced yet. Run "plex-playlists audiomuse sync" to sync audio features.');
+        } else if (syncStats.coveragePercent < 90) {
+          console.log(`\n⚠️  Only ${syncStats.coveragePercent.toFixed(1)}% of AudioMuse tracks are synced.`);
+          console.log('   Run "plex-playlists audiomuse sync" to improve coverage.');
+        } else {
+          console.log('\n✓ AudioMuse integration looks good!');
+        }
+
+        console.log('');
+        await closeAudioMuseClient();
+      } catch (error) {
+        console.error('\n✗ Failed to get AudioMuse stats:', error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        closeDb();
+      }
+
+      return;
+    }
+
+    console.error(`Error: Unknown audiomuse subcommand '${subcommand}'`);
+    console.error('\nAvailable subcommands:');
+    console.error('  sync   - Sync audio features from AudioMuse to Plex tracks');
+    console.error('  stats  - Show AudioMuse sync statistics');
     process.exitCode = 1;
     return;
   }

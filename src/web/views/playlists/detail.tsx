@@ -55,6 +55,11 @@ export interface PlaylistDetailPageProps {
   genreStats: GenreStat[];
   prevPlaylist: Playlist | null;
   nextPlaylist: Playlist | null;
+  customPlaylistData: {
+    scoringStrategy: string;
+    genres: string[];
+    moods: string[];
+  } | null;
   setupComplete: boolean;
   page: string;
   breadcrumbs: Breadcrumb[];
@@ -94,6 +99,7 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
     genreStats,
     prevPlaylist,
     nextPlaylist,
+    customPlaylistData,
     setupComplete,
     page,
     breadcrumbs
@@ -176,6 +182,14 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
               <p style="margin: 0; font-size: 1rem;">{timeAgo(playlist.generatedAt)}</p>
               <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.75rem;">{formatDate(playlist.generatedAt)}</p>
             </div>
+            {customPlaylistData && (
+              <div>
+                <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Strategy</p>
+                <p style="margin: 0; font-size: 1rem; text-transform: capitalize;">
+                  {customPlaylistData.scoringStrategy}
+                </p>
+              </div>
+            )}
             {playlist.plexRatingKey && (
               <div>
                 <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Plex</p>
@@ -236,9 +250,19 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
             <a href={`/playlists/${playlist.id}/export/m3u`} role="button" class="secondary" style="margin: 0;">
               🎵 Export M3U
             </a>
-            <a href="/config/playlists" role="button" class="secondary" style="margin: 0;">
-              ⚙️ Configure
+            <a href="/playlists/builder" role="button" class="secondary" style="margin: 0;">
+              ⚙️ Manage Playlists
             </a>
+            <button
+              id="deleteBtn"
+              data-playlist-id={playlist.id}
+              onclick="confirmDelete()"
+              class="secondary"
+              style="margin: 0; margin-left: auto;"
+              title="Delete this playlist"
+            >
+              🗑️ Delete
+            </button>
           </div>
         </div>
 

@@ -21,6 +21,7 @@ import {
 import { getDb } from '../../db/index.js';
 import { setupState } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { getCacheStats } from '../../cache/cache-cli.js';
 
 export const configRouter = Router();
 
@@ -88,8 +89,6 @@ configRouter.get('/', async (req, res) => {
 configRouter.get('/settings', async (req, res) => {
   try {
     const setupComplete = await getSetupStatus();
-    const { genreCache } = await import('../../db/schema.js');
-    const db = getDb();
 
     // Get all settings with metadata
     const allSettings = await getAllSettingsWithMetadata();
@@ -123,15 +122,12 @@ configRouter.get('/settings', async (req, res) => {
         return acc;
       }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
 
-    // Get cache stats
-    const cacheEntries = await db.select().from(genreCache);
+    // Get cache stats from cache service
+    const stats = await getCacheStats();
     const cacheStats = {
-      total: cacheEntries.length,
-      bySource: cacheEntries.reduce((acc, entry) => {
-        acc[entry.source] = (acc[entry.source] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      expired: cacheEntries.filter(e => e.expiresAt && e.expiresAt < new Date()).length
+      total: stats.artists.totalEntries,
+      bySource: stats.artists.bySource,
+      expired: stats.artists.expired
     };
 
     // Get playlist config
@@ -486,5 +482,111 @@ configRouter.get('/api/test-spotify', async (req, res) => {
       success: false,
       error: error instanceof Error ? error.message : 'API test failed'
     });
+  }
+});
+
+/**
+ * API: Get genre ignore list and statistics
+ */
+configRouter.get('/api/genres/ignore-list', async (req, res) => {
+  try {
+    const { getEffectiveConfig } = await import('../../db/settings-service.js');
+    const { DEFAULT_GENRE_IGNORE_LIST, getGenreIgnoreListStats } = await import('../../metadata/genre-service.js');
+
+    const config = await getEffectiveConfig();
+    const ignoreList = config.genreIgnoreList.length > 0
+      ? config.genreIgnoreList
+      : DEFAULT_GENRE_IGNORE_LIST;
+
+    // Get statistics from genre service
+    const stats = await getGenreIgnoreListStats(ignoreList);
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Genre ignore list API error:', error);
+    res.status(500).json({ error: 'Failed to fetch genre ignore list' });
+  }
+});
+
+/**
+ * API: Update genre ignore list
+ */
+configRouter.put('/api/genres/ignore-list', async (req, res) => {
+  try {
+    const { genres } = req.body;
+
+    if (!Array.isArray(genres)) {
+      return res.status(400).json({ error: 'genres must be an array' });
+    }
+
+    // Validate each genre is a string
+    if (!genres.every(g => typeof g === 'string')) {
+      return res.status(400).json({ error: 'All genres must be strings' });
+    }
+
+    // Normalize genres before saving
+    const { normalizeGenres } = await import('../../metadata/genre-service.js');
+    const normalizedGenres = normalizeGenres(genres);
+
+    // Save to database
+    await setSettingWithWriteback('genre_ignore_list', JSON.stringify(normalizedGenres), true);
+
+    // Invalidate genre enrichment service config cache
+    const { getGenreEnrichmentService } = await import('../../genre-enrichment.js');
+    const service = getGenreEnrichmentService();
+    service.invalidateConfigCache();
+
+    res.setHeader('X-Toast-Message', 'Genre ignore list updated successfully');
+    res.setHeader('X-Toast-Type', 'success');
+
+    res.json({
+      success: true,
+      message: 'Genre ignore list updated',
+      genres: normalizedGenres
+    });
+  } catch (error) {
+    console.error('Genre ignore list update error:', error);
+    res.setHeader('X-Toast-Message', 'Failed to update genre ignore list');
+    res.setHeader('X-Toast-Type', 'error');
+    res.status(500).json({ error: 'Failed to update genre ignore list' });
+  }
+});
+
+/**
+ * API: Reset genre ignore list to default
+ */
+configRouter.delete('/api/genres/ignore-list', async (req, res) => {
+  try {
+    // Delete from database (falls back to default)
+    await setSettingWithWriteback('genre_ignore_list', null, true);
+
+    // Invalidate genre enrichment service config cache
+    const { getGenreEnrichmentService } = await import('../../genre-enrichment.js');
+    const service = getGenreEnrichmentService();
+    service.invalidateConfigCache();
+
+    res.setHeader('X-Toast-Message', 'Genre ignore list reset to default');
+    res.setHeader('X-Toast-Type', 'success');
+
+    res.json({ success: true, message: 'Genre ignore list reset to default' });
+  } catch (error) {
+    console.error('Genre ignore list reset error:', error);
+    res.setHeader('X-Toast-Message', 'Failed to reset genre ignore list');
+    res.setHeader('X-Toast-Type', 'error');
+    res.status(500).json({ error: 'Failed to reset genre ignore list' });
+  }
+});
+
+/**
+ * API: Get all unique genres from cache (for autocomplete)
+ */
+configRouter.get('/api/genres/all', async (req, res) => {
+  try {
+    const { getAllGenresWithCounts } = await import('../../metadata/genre-service.js');
+    const genres = await getAllGenresWithCounts();
+    res.json({ genres });
+  } catch (error) {
+    console.error('Get all genres error:', error);
+    res.status(500).json({ error: 'Failed to fetch genres' });
   }
 });

@@ -121,7 +121,7 @@ plex-playlists import ~/music-exports/ --dry-run
 # Show cache statistics
 plex-playlists cache stats
 
-# Warm genre cache for all artists
+# Warm artist cache for all artists
 plex-playlists cache warm
 
 # Warm with lower concurrency (safer)
