@@ -21,10 +21,11 @@ export async function initializeDirectories(): Promise<void> {
   logger.debug({ configDir, dataDir }, 'ensuring directories exist');
 
   // Copy playlists.config.json if it doesn't exist in config/
-  await copyTemplateIfMissing(
+  await copyTemplateOrCreateDefault(
     './playlists.config.json',
     path.join(configDir, 'playlists.config.json'),
-    'playlists configuration'
+    'playlists configuration',
+    getDefaultPlaylistConfig()
   );
 
   // Copy genre-mapping.json if user created one and it doesn't exist in config/
@@ -37,10 +38,17 @@ export async function initializeDirectories(): Promise<void> {
     );
   }
 
-  // Check for .env in config/ and log if found
+  // Create .env in config/ if it doesn't exist
   const configEnvPath = path.join(configDir, '.env');
-  if (existsSync(configEnvPath)) {
-    logger.info({ path: configEnvPath }, 'found .env in config directory');
+  if (!existsSync(configEnvPath)) {
+    try {
+      await fs.writeFile(configEnvPath, getDefaultEnvContent(), 'utf-8');
+      logger.info({ path: configEnvPath }, 'created default .env in config directory');
+    } catch (error) {
+      logger.warn({ path: configEnvPath, error }, 'failed to create .env file');
+    }
+  } else {
+    logger.debug({ path: configEnvPath }, 'found .env in config directory');
   }
 }
 
@@ -62,6 +70,82 @@ async function copyTemplateIfMissing(
   } else {
     logger.debug({ path: destPath }, `${description} already exists`);
   }
+}
+
+async function copyTemplateOrCreateDefault(
+  sourcePath: string,
+  destPath: string,
+  description: string,
+  defaultContent: string
+): Promise<void> {
+  if (!existsSync(destPath)) {
+    // Try to copy from source first
+    if (existsSync(sourcePath)) {
+      try {
+        await fs.copyFile(sourcePath, destPath);
+        logger.info({ source: sourcePath, dest: destPath }, `copied ${description} template`);
+        return;
+      } catch (error) {
+        logger.warn(
+          { source: sourcePath, dest: destPath, error },
+          `failed to copy ${description} template, creating default`
+        );
+      }
+    }
+
+    // If source doesn't exist or copy failed, create default
+    try {
+      await fs.writeFile(destPath, defaultContent, 'utf-8');
+      logger.info({ dest: destPath }, `created default ${description}`);
+    } catch (error) {
+      logger.error(
+        { dest: destPath, error },
+        `failed to create default ${description}`
+      );
+    }
+  } else {
+    logger.debug({ path: destPath }, `${description} already exists`);
+  }
+}
+
+function getDefaultPlaylistConfig(): string {
+  return JSON.stringify({
+    "$schema": "./playlists.config.schema.json",
+    "genrePlaylists": {
+      "pinned": [],
+      "autoDiscover": {
+        "enabled": false,
+        "minArtists": 5,
+        "maxPlaylists": 20,
+        "exclude": [],
+        "schedule": "0 15 * * 1",
+        "description": "Auto-discovered genre playlists based on library analysis"
+      }
+    }
+  }, null, 2);
+}
+
+function getDefaultEnvContent(): string {
+  return `# Plex-Playlists Configuration
+# This file is auto-generated. Add your environment variables below.
+# See https://github.com/aceofaces/plex-playlists for full documentation.
+
+# Required: Plex Server Configuration
+# PLEX_BASE_URL=http://localhost:32400
+# PLEX_AUTH_TOKEN=your-plex-token-here
+
+# Optional: API Keys for Genre Enrichment
+# LASTFM_API_KEY=your-lastfm-api-key
+# SPOTIFY_CLIENT_ID=your-spotify-client-id
+# SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
+
+# Optional: Database Path (default: ./data/plex-playlists.db)
+# DATABASE_PATH=./data/plex-playlists.db
+
+# Optional: Web UI Configuration
+# WEB_UI_ENABLED=true
+# WEB_UI_PORT=8687
+`;
 }
 
 /**

@@ -59,6 +59,17 @@ Build the ultimate self-hosted music playlist automation tool that rivals Spotif
 - [x] **Docker support** - Full containerization with docker-compose
 - [x] **Graceful shutdown** - Proper SIGTERM/SIGINT handling
 
+### Playlist Features
+
+- [x] **"Generate now" for custom playlists** - Trigger immediate playlist generation from web UI
+- [x] **Dynamic playlist descriptions** - Automatic description updates showing track count, duration, genres/moods, and timestamp
+- [x] **Playlist export** - Export playlists to M3U and CSV formats with full metadata
+
+### UI/UX Features
+
+- [x] **Toast notifications** - Success/error/warning/info notifications with auto-dismiss and HTMX integration
+- [x] **Responsive mobile layout** - Mobile-friendly navigation, tables, and breakpoints for better mobile experience
+
 ---
 
 ## In Progress 🚧
@@ -72,23 +83,12 @@ Nothing currently in active development.
 ### High Priority
 
 #### UI/UX Improvements
-- [ ] **Fix "Generate now" for custom playlists** - "Generate now" button does not trigger playlist creation
-- [ ] **Prominent post-creation playlist generation** - Make "Generate now" more prominent/default action after creating a new custom playlist
 - [ ] **Dark mode toggle** - User preference for light/dark themes
-- [ ] **Responsive mobile layout** - Better mobile experience for playlist management
 - [ ] **Playlist preview** - Preview tracks before committing to Plex
 - [ ] **Drag-and-drop playlist reordering** - Manual track ordering in custom playlists
 - [ ] **Bulk playlist operations** - Enable/disable/delete multiple playlists at once
 - [ ] **Settings validation feedback** - Real-time validation in configuration editor
-- [ ] **Toast notifications** - Success/error notifications for user actions
 - [ ] **Loading states** - Better visual feedback during async operations
-
-#### Playlist Description Updates
-- [ ] **Dynamic playlist descriptions** - Update Plex playlist descriptions when regenerating
-  - Show last updated timestamp
-  - Show generation parameters (genres, moods, time window)
-  - Show track count and duration
-  - Example: `"🎨 Chill Electronic • 50 tracks • Updated 2025-10-10 17:30 • Genres: electronic, ambient • Moods: chill, mellow"`
 
 #### Background Job System Enhancements
 - [ ] **Automatic retry mechanism** - Retry failed jobs with exponential backoff
@@ -113,14 +113,6 @@ Nothing currently in active development.
   - Example use case: Exclude "Christmas" genre year-round
 
 #### Playlist Features
-- [ ] **Custom playlist artwork** - Generate cover art from album covers or genre themes
-  - Mosaic of album covers from playlist tracks
-  - Genre-themed color gradients
-  - Upload custom artwork
-- [ ] **Playlist export** - Export playlists to standard formats
-  - M3U/M3U8 export with file paths
-  - Spotify playlist export (reverse sync)
-  - CSV export with metadata
 - [ ] **Smart playlist templates** - Pre-configured playlist templates
   - "Deep Cuts" - Album tracks with low play counts
   - "Genre Explorer" - Expand into adjacent genres
@@ -161,59 +153,6 @@ Nothing currently in active development.
   - Tracks missing genres/moods
   - Low-rated tracks (potential for cleanup)
   - Duplicate detection
-
-#### Integrations
-- [ ] **Last.fm scrobbling** - Submit plays to Last.fm as playlists are generated
-- [ ] **Playlist.com integration** - Cross-platform playlist sharing
-- [ ] **Webhooks** - Trigger external actions on playlist generation
-  - Discord/Slack notifications
-  - IFTTT integration
-  - Home Assistant notifications
-
-#### Developer Experience
-- [ ] **E2E test suite** - Playwright tests for web UI
-- [ ] **Performance profiling** - Identify and optimize bottlenecks in selection algorithm
-- [ ] **CLI progress bars** - Better visual feedback for long-running operations
-- [ ] **Plugin system** - Allow custom scoring algorithms and filters
-
----
-
-## Upstream Library Issues (@ctrl/plex)
-
-These are limitations in the `@ctrl/plex` library that we're working around. Some issues have been submitted upstream, others are deferred to avoid overwhelming the maintainer.
-
-### Submitted Upstream ✅
-- [x] **server.history() timestamp bug** - [PR #34](https://github.com/scttcper/plex/pull/34) ⏳ Awaiting review
-  - **Issue**: `mindate` parameter passed milliseconds instead of seconds, causing filter to be ignored
-  - **Fix**: Convert timestamp to Unix seconds format
-  - **Bonus**: Added missing `ratingKey`, `historyKey`, and `librarySectionID` fields to TypeScript types
-  - **Impact**: All history filtering (including `librarySectionId`) now works correctly
-  - **Workaround removed**: Can remove direct API query once merged (src/history/history-service.ts:103-135)
-
-- [x] **No audio playlist creation support** - [Issue #35](https://github.com/scttcper/plex/issues/35) ⏳ Awaiting response
-  - **Impact**: Cannot use library methods to create/manage audio playlists
-  - **Workaround**: Direct API POST to `/playlists?type=audio&...` (src/plex/playlists.ts:21-51)
-  - **Requested**: Add `Track`, `Album`, `Artist` support to `Playlist.create()` and `addItems()`
-
-### Deferred (To Avoid Overwhelming Maintainer)
-
-These are valid issues but we're holding off on submitting them until the current PR/issue are addressed:
-
-- [ ] **No playlist update/summary methods**
-  - **Impact**: Cannot update playlist title, description, or other metadata
-  - **Workaround**: Direct API PUT to `/playlists/{ratingKey}?title=...&summary=...` (src/plex/playlists.ts:53-71)
-  - **Future PR**: Add `updatePlaylist()` method to Playlist class
-
-- [ ] **Default timeout too short for large libraries**
-  - **Impact**: Requests timeout when fetching thousands of tracks from large music libraries
-  - **Workaround**: Override timeout to 120000ms (2 minutes) in PlexServer constructor (src/plex/client.ts:21)
-  - **Default**: 30000ms (30 seconds)
-  - **Future PR**: Increase default timeout to 60-120 seconds, or add per-method timeout overrides
-
-- [ ] **History API pagination behavior undocumented**
-  - Container-based pagination (`X-Plex-Container-Size`, `X-Plex-Container-Start`) not explained
-  - MediaContainer response structure not typed
-  - **Future PR**: Add JSDoc comments and type definitions
 
 ---
 

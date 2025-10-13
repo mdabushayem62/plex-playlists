@@ -199,6 +199,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       }
 
       const playlistMetadata = await getPlaylistMetadata(window);
+
       if (playlistMetadata?.plexRatingKey) {
         try {
           await deletePlaylist(playlistMetadata.plexRatingKey);
@@ -221,7 +222,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
 
       const windowLabelText = formatWindowLabel(window);
       const emoji = getEmojiPrefix(window);
-      const title = windowDef.type === 'special'
+      const baseTitle = windowDef.type === 'special'
         ? `${emoji} Weekly ${windowLabelText}`
         : `${emoji} Daily ${window.charAt(0).toUpperCase()}${window.slice(1)} Mix`;
 
@@ -234,7 +235,37 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       // Format: "50 tracks • 3h 24m • Morning 06:00-11:59 • Updated 2025-10-10 17:30"
       const summary = `${trackCount} tracks • ${formattedDuration} • ${windowLabelText} • Updated ${timestamp}`;
 
-      const { ratingKey } = await createAudioPlaylist(title, summary, playlistTracks);
+      let ratingKey: string;
+      let title = baseTitle;
+
+      try {
+        const result = await createAudioPlaylist(title, summary, playlistTracks);
+        ratingKey = result.ratingKey;
+      } catch (error) {
+        // If all retries failed, create with timestamped title (don't replace existing)
+        logger.error(
+          { window, baseTitle, err: error },
+          'failed to create playlist after retries, creating with timestamped title'
+        );
+
+        const timestampedTitle = `${baseTitle} (${format(new Date(), 'yyyy-MM-dd HH:mm')})`;
+        title = timestampedTitle;
+
+        try {
+          const result = await createAudioPlaylist(timestampedTitle, summary, playlistTracks);
+          ratingKey = result.ratingKey;
+          logger.warn(
+            { window, timestampedTitle, ratingKey },
+            'created playlist with timestamped title as fallback'
+          );
+        } catch (fallbackError) {
+          logger.error(
+            { window, timestampedTitle, err: fallbackError },
+            'failed to create playlist even with timestamped title'
+          );
+          throw fallbackError;
+        }
+      }
       // Note: Summary is already set during createAudioPlaylist(), no need for redundant update
 
       await savePlaylist({
