@@ -27,7 +27,7 @@
   "dependencies": {
     "@ctrl/plex": "^3.10.0",
     "@kitajs/html": "^4.2.10",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.4.1",
     "chart.js": "^4.5.0",
     "csv-parse": "^6.1.0",
     "date-fns": "^4.1.0",
