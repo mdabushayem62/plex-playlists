@@ -1,0 +1,1 @@
+ALTER TABLE `custom_playlists` ADD `scoring_strategy` text DEFAULT 'quality' NOT NULL;

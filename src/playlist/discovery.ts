@@ -1,13 +1,14 @@
 import { differenceInDays, subDays } from 'date-fns';
-import type { HistoryMetadatum } from '@ctrl/plex';
+import type { HistoryResult } from '@ctrl/plex';
 
 import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
 import { getPlexServer } from '../plex/client.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
+import { calculateScore } from '../scoring/strategies.js';
 import type { CandidateTrack } from './candidate-builder.js';
 import { getDb } from '../db/index.js';
-import { genreCache } from '../db/schema.js';
+import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 export interface DiscoveryTrack extends CandidateTrack {
@@ -53,7 +54,7 @@ export const fetchDiscoveryTracks = async (
 
   try {
     // Fetch history with pagination
-    const allHistory: HistoryMetadatum[] = [];
+    const allHistory: HistoryResult[] = [];
     const pageSize = 500;
 
     while (allHistory.length < maxHistoryEntries) {
@@ -91,7 +92,7 @@ export const fetchDiscoveryTracks = async (
       rating: number;
       playCount: number;
       lastPlayedAt: Date;
-      metadata: HistoryMetadatum; // Preserve first occurrence for metadata
+      metadata: HistoryResult; // Preserve first occurrence for metadata
     }>();
 
     for (const item of allHistory) {
@@ -152,7 +153,6 @@ export const fetchDiscoveryTracks = async (
       recencyWeight: number;
       fallbackScore: number;
     }> = [];
-    const saturation = APP_ENV.PLAY_COUNT_SATURATION;
 
     for (const trackData of trackMap.values()) {
       const daysSincePlay = differenceInDays(now, trackData.lastPlayedAt);
@@ -167,22 +167,16 @@ export const fetchDiscoveryTracks = async (
         continue;
       }
 
-      // Calculate discovery score
-      // Components:
-      // 1. Star rating weight (0-1): Prefer highly-rated tracks
-      // 2. Play count penalty (0-1): Prefer less-played tracks
-      // 3. Recency penalty (0-1): Prefer longer-forgotten tracks
+      // Use centralized discovery scoring
+      const scoringResult = calculateScore('discovery', {
+        userRating: trackData.rating * 2, // Convert 0-5 to 0-10 for scoring
+        playCount: trackData.playCount,
+        lastPlayedAt: trackData.lastPlayedAt,
+        daysSincePlay,
+        now
+      });
 
-      const starWeight = trackData.rating / 5.0;
-      const playCountPenalty = 1 - Math.min(trackData.playCount, saturation) / saturation;
-      const recencyPenalty = Math.min(daysSincePlay / 365, 1); // Max at 1 year
-
-      // If no rating, use play count as proxy quality signal
-      const qualityScore = trackData.rating > 0
-        ? starWeight
-        : Math.min(trackData.playCount / saturation, 1.0) * 0.5;
-
-      const discoveryScore = qualityScore * playCountPenalty * recencyPenalty;
+      const discoveryScore = scoringResult.finalScore;
 
       // Skip very low-scoring tracks
       if (discoveryScore < 0.1) {
@@ -199,8 +193,8 @@ export const fetchDiscoveryTracks = async (
         lastPlayedAt: trackData.lastPlayedAt,
         daysSincePlay,
         discoveryScore,
-        recencyWeight: recencyPenalty,
-        fallbackScore: qualityScore
+        recencyWeight: scoringResult.components.metadata?.recencyPenalty ?? 0,
+        fallbackScore: scoringResult.components.metadata?.qualityScore ?? 0
       });
     }
 
@@ -309,9 +303,9 @@ async function updateCacheUsage(artistNames: string[]): Promise<void> {
 
   const updates = normalizedNames.map(name =>
     db
-      .update(genreCache)
+      .update(artistCache)
       .set({ lastUsedAt: now })
-      .where(eq(genreCache.artistName, name))
+      .where(eq(artistCache.artistName, name))
       .catch(() => { /* silently ignore errors */ })
   );
 

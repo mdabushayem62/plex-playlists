@@ -1,12 +1,15 @@
 import type { Track } from '@ctrl/plex';
 
 import type { AggregatedHistory } from '../history/aggregate.js';
-import { fallbackScore, recencyWeight } from '../scoring/weights.js';
+import { calculateScore } from '../scoring/strategies.js';
+import type { ScoringStrategy } from '../scoring/types.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
 import { getEnrichedAlbumGenres, getEnrichedAlbumMoods } from '../genre-enrichment.js';
 import { getDb } from '../db/index.js';
-import { genreCache } from '../db/schema.js';
+import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { filterMetaGenres, DEFAULT_GENRE_IGNORE_LIST } from '../metadata/genre-service.js';
+import { getEffectiveConfig } from '../db/settings-service.js';
 
 export interface CandidateTrack {
   ratingKey: string;
@@ -23,9 +26,6 @@ export interface CandidateTrack {
   lastPlayedAt: Date | null;
   finalScore: number;
 }
-
-const FINAL_SCORE_RECENCY_WEIGHT = 0.7;
-const FINAL_SCORE_FALLBACK_WEIGHT = 0.3;
 
 /**
  * Get genre for a track with enrichment from multiple sources
@@ -66,28 +66,41 @@ export const getGenre = async (track: Track): Promise<string | undefined> => {
 
 /**
  * Get all genres for a track (for multi-genre matching)
+ * Filters out meta-genres based on settings (ignoreMetaGenres = true by default)
  */
-const getAllGenres = async (track: Track): Promise<string[]> => {
+const getAllGenres = async (track: Track, ignoreMetaGenres = true): Promise<string[]> => {
   const artistName = track.grandparentTitle;
   const albumName = track.parentTitle;
+
+  let genres: string[] = [];
 
   if (artistName && albumName) {
     const albumGenres = await getEnrichedAlbumGenres(artistName, albumName);
     if (albumGenres.length > 0) {
-      return albumGenres;
+      genres = albumGenres;
     }
   }
 
-  if (artistName) {
+  if (genres.length === 0 && artistName) {
     const { getGenreEnrichmentService } = await import('../genre-enrichment.js');
     const service = getGenreEnrichmentService();
     const artistGenres = await service.getGenresForArtist(artistName, { cacheOnly: true });
     if (artistGenres.length > 0) {
-      return artistGenres;
+      genres = artistGenres;
     }
   }
 
-  return [];
+  // Filter out meta-genres if enabled
+  if (ignoreMetaGenres && genres.length > 0) {
+    const config = await getEffectiveConfig();
+    const ignoreList = config.genreIgnoreList.length > 0
+      ? config.genreIgnoreList
+      : DEFAULT_GENRE_IGNORE_LIST;
+
+    genres = filterMetaGenres(genres, ignoreList);
+  }
+
+  return genres;
 };
 
 /**
@@ -118,13 +131,22 @@ const getAllMoods = async (track: Track): Promise<string[]> => {
 
 const buildCandidate = async (
   track: Track,
-  history: { playCount: number; lastPlayedAt: Date | null }
+  history: { playCount: number; lastPlayedAt: Date | null },
+  scoringMode: ScoringMode = 'standard'
 ): Promise<CandidateTrack> => {
-  const historyRecency = recencyWeight(history.lastPlayedAt);
-  const fallback = fallbackScore(track.userRating, track.viewCount ?? history.playCount);
   const genre = await getGenre(track);
   const genres = await getAllGenres(track);
   const moods = await getAllMoods(track);
+
+  // Map legacy mode names to new strategy names
+  const strategy: ScoringStrategy = scoringMode === 'quality-first' ? 'quality' : 'balanced';
+
+  // Calculate score using centralized strategy
+  const scoringResult = calculateScore(strategy, {
+    userRating: track.userRating,
+    playCount: track.viewCount ?? history.playCount,
+    lastPlayedAt: history.lastPlayedAt
+  });
 
   return {
     ratingKey: track.ratingKey?.toString() ?? '',
@@ -135,18 +157,21 @@ const buildCandidate = async (
     genre,
     genres,
     moods,
-    recencyWeight: historyRecency,
-    fallbackScore: fallback,
+    recencyWeight: scoringResult.components.recencyWeight,
+    fallbackScore: scoringResult.components.fallbackScore,
     playCount: history.playCount,
     lastPlayedAt: history.lastPlayedAt,
-    finalScore: historyRecency * FINAL_SCORE_RECENCY_WEIGHT + fallback * FINAL_SCORE_FALLBACK_WEIGHT
+    finalScore: scoringResult.finalScore
   };
 };
+
+export type ScoringMode = 'standard' | 'quality-first';
 
 export interface BuildCandidatesOptions {
   genreFilter?: string; // Filter candidates by genre (case-insensitive substring match)
   genreFilters?: string[]; // Filter by multiple genres (match ANY)
   moodFilters?: string[]; // Filter by multiple moods (match ANY)
+  scoringMode?: ScoringMode; // Scoring strategy (default: 'standard')
 }
 
 export const buildCandidateTracks = async (
@@ -157,6 +182,7 @@ export const buildCandidateTracks = async (
     return [];
   }
 
+  const { scoringMode = 'standard' } = options;
   const ratingKeys = history.map(h => h.ratingKey);
   const tracksMap = await fetchTracksByRatingKeys(ratingKeys);
 
@@ -171,7 +197,7 @@ export const buildCandidateTracks = async (
     const candidate = await buildCandidate(track, {
       playCount: item.playCount,
       lastPlayedAt: item.lastPlayedAt
-    });
+    }, scoringMode);
 
     // Apply genre filter if specified (legacy single-genre filter)
     if (options.genreFilter) {
@@ -234,8 +260,9 @@ export const buildCandidateTracks = async (
 
 export const candidateFromTrack = async (
   track: Track,
-  history: { playCount: number; lastPlayedAt: Date | null }
-): Promise<CandidateTrack> => buildCandidate(track, history);
+  history: { playCount: number; lastPlayedAt: Date | null },
+  scoringMode: ScoringMode = 'standard'
+): Promise<CandidateTrack> => buildCandidate(track, history, scoringMode);
 
 /**
  * Update last_used_at timestamp for cache entries (async, non-blocking)
@@ -252,9 +279,9 @@ async function updateCacheUsage(artistNames: string[]): Promise<void> {
   // We don't await these to avoid blocking playlist generation
   const updates = normalizedNames.map(name =>
     db
-      .update(genreCache)
+      .update(artistCache)
       .set({ lastUsedAt: now })
-      .where(eq(genreCache.artistName, name))
+      .where(eq(artistCache.artistName, name))
       .catch(() => {
         // Silently ignore errors - usage tracking is non-critical
       })

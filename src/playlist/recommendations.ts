@@ -14,13 +14,15 @@
  */
 
 import { subDays } from 'date-fns';
-import type { HistoryMetadatum } from '@ctrl/plex';
+import type { HistoryResult } from '@ctrl/plex';
 import { getPlexServer } from '../plex/client.js';
 import { getDb } from '../db/index.js';
-import { genreCache } from '../db/schema.js';
+import { artistCache } from '../db/schema.js';
 import { sql } from 'drizzle-orm';
 import { logger } from '../logger.js';
 import { APP_ENV } from '../config.js';
+import { getEffectiveConfig } from '../db/settings-service.js';
+import { DEFAULT_GENRE_IGNORE_LIST } from '../metadata/genre-service.js';
 
 export interface PlaylistRecommendation {
   name: string;
@@ -75,15 +77,34 @@ export async function getPlaylistRecommendations(): Promise<PlaylistRecommendati
 
     logger.debug({ trackCount: trackData.length }, 'fetched listening history');
 
+    // Get genre ignore list to filter out meta-genres from recommendations
+    const config = await getEffectiveConfig();
+    const ignoreList = config.genreIgnoreList.length > 0
+      ? config.genreIgnoreList
+      : DEFAULT_GENRE_IGNORE_LIST;
+    const ignoreSet = new Set(ignoreList.map(g => g.toLowerCase()));
+
     // Get user's library stats from history
     const genreStats = await analyzeGenres(trackData);
     const moodStats = await analyzeMoods(trackData);
 
-    // Generate different types of recommendations
-    recommendations.push(...generateFavoriteGenrePlaylists(genreStats));
+    // Filter out meta-genres from genre stats before generating recommendations
+    const filteredGenreStats = genreStats.filter(g => !ignoreSet.has(g.genre.toLowerCase()));
+
+    logger.debug(
+      {
+        totalGenres: genreStats.length,
+        filteredGenres: filteredGenreStats.length,
+        ignoredCount: genreStats.length - filteredGenreStats.length
+      },
+      'filtered meta-genres from recommendations'
+    );
+
+    // Generate different types of recommendations (using filtered genre stats)
+    recommendations.push(...generateFavoriteGenrePlaylists(filteredGenreStats));
     recommendations.push(...generateMoodPlaylists(moodStats));
-    recommendations.push(...(await generateGenreCombos(genreStats, trackData)));
-    recommendations.push(...generateDiscoveryPlaylists(genreStats));
+    recommendations.push(...(await generateGenreCombos(filteredGenreStats, trackData, ignoreSet)));
+    recommendations.push(...generateDiscoveryPlaylists(filteredGenreStats));
 
     // Sort by score and take top 10
     recommendations.sort((a, b) => b.score - a.score);
@@ -127,7 +148,7 @@ async function fetchRecentListeningHistory(
     );
 
     // Fetch history with pagination
-    const allHistory: HistoryMetadatum[] = [];
+    const allHistory: HistoryResult[] = [];
     const pageSize = 500;
     let offset = 0;
     let hasMore = true;
@@ -237,8 +258,8 @@ async function analyzeGenres(trackData: TrackData[]): Promise<GenreStats[]> {
     // Get genre cache data
     const genreCacheData = await db
       .select()
-      .from(genreCache)
-      .where(sql`${genreCache.genres} IS NOT NULL AND ${genreCache.genres} != '[]'`);
+      .from(artistCache)
+      .where(sql`${artistCache.genres} IS NOT NULL AND ${artistCache.genres} != '[]'`);
 
     // Build artist -> genres map
     const artistGenres = new Map<string, string[]>();
@@ -303,8 +324,8 @@ async function analyzeMoods(trackData: TrackData[]): Promise<MoodStats[]> {
     // Get mood cache data
     const moodCacheData = await db
       .select()
-      .from(genreCache)
-      .where(sql`${genreCache.moods} IS NOT NULL AND ${genreCache.moods} != '[]'`);
+      .from(artistCache)
+      .where(sql`${artistCache.moods} IS NOT NULL AND ${artistCache.moods} != '[]'`);
 
     // Build artist -> moods map
     const artistMoods = new Map<string, string[]>();
@@ -430,19 +451,25 @@ function generateMoodPlaylists(moodStats: MoodStats[]): PlaylistRecommendation[]
 /**
  * Generate genre combination playlists based on actual library composition
  */
-async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackData[]): Promise<PlaylistRecommendation[]> {
+async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackData[], ignoreSet: Set<string>): Promise<PlaylistRecommendation[]> {
   const recommendations: PlaylistRecommendation[] = [];
 
   // Analyze genre co-occurrence in user's listening history
   const genrePairs = await analyzeGenreCooccurrence(trackData);
 
-  // Get top 15 genres for combination analysis
+  // Get top 15 genres for combination analysis (already filtered)
   const topGenres = genreStats.slice(0, 15);
   const genreMap = new Map(topGenres.map(g => [g.genre.toLowerCase(), g]));
 
   // Find the best genre pairs based on co-occurrence and quality
+  // Filter out pairs where either genre is in the ignore list
   const viablePairs = genrePairs
     .filter(pair => {
+      // Skip if either genre is in ignore list
+      if (ignoreSet.has(pair.genre1.toLowerCase()) || ignoreSet.has(pair.genre2.toLowerCase())) {
+        return false;
+      }
+
       const g1 = genreMap.get(pair.genre1.toLowerCase());
       const g2 = genreMap.get(pair.genre2.toLowerCase());
       return g1 && g2 && pair.cooccurrenceCount >= 3; // At least 3 tracks with both genres
@@ -488,8 +515,8 @@ async function analyzeGenreCooccurrence(trackData: TrackData[]): Promise<Array<{
     // Get genre cache data
     const genreCacheData = await db
       .select()
-      .from(genreCache)
-      .where(sql`${genreCache.genres} IS NOT NULL AND ${genreCache.genres} != '[]'`);
+      .from(artistCache)
+      .where(sql`${artistCache.genres} IS NOT NULL AND ${artistCache.genres} != '[]'`);
 
     // Build artist -> genres map
     const artistGenres = new Map<string, string[]>();

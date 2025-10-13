@@ -1,13 +1,14 @@
 import { subDays } from 'date-fns';
-import type { HistoryMetadatum } from '@ctrl/plex';
+import type { HistoryResult } from '@ctrl/plex';
 
 import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
 import { getPlexServer } from '../plex/client.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
+import { calculateScore } from '../scoring/strategies.js';
 import type { CandidateTrack } from './candidate-builder.js';
 import { getDb } from '../db/index.js';
-import { genreCache } from '../db/schema.js';
+import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 export interface ThrowbackTrack extends CandidateTrack {
@@ -72,7 +73,7 @@ export const fetchThrowbackTracks = async (
 
   // Fetch history from the lookback window with pagination
   // Plex history() fetches from mindate to now, so we fetch and filter in memory
-  const allHistory: HistoryMetadatum[] = [];
+  const allHistory: HistoryResult[] = [];
   const pageSize = 500;
   const maxHistoryEntries = 10000; // Limit for performance
   const candidates: ThrowbackTrack[] = []; // Declare here to be accessible outside try-catch
@@ -196,7 +197,6 @@ export const fetchThrowbackTracks = async (
       qualityScore: number;
       daysSinceLastPlay: number;
     }> = [];
-    const saturation = APP_ENV.PLAY_COUNT_SATURATION;
 
     for (const trackData of trackMap.values()) {
       // Check if track was played recently (exclude if so)
@@ -204,35 +204,23 @@ export const fetchThrowbackTracks = async (
         continue; // Skip recently played tracks
       }
 
-      // Calculate throwback score
-      // Components:
-      // 1. Nostalgia weight (0-1): Older within window = higher score
-      // 2. Play count in window (normalized): How much you loved it back then
-      // 3. User rating weight (0-1): Quality signal
-
       const daysSinceLastPlay = Math.floor(
         (now.getTime() - trackData.mostRecentPlayEver.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      // Nostalgia weight: favor older tracks within the window
-      // Linear scale from lookbackStart to lookbackEnd
-      const windowRange = lookbackEnd - lookbackStart;
-      const daysIntoWindow = daysSinceLastPlay - lookbackStart;
-      const nostalgiaWeight = Math.min(Math.max(daysIntoWindow / windowRange, 0), 1);
+      // Use centralized throwback scoring
+      const scoringResult = calculateScore('throwback', {
+        userRating: trackData.rating * 2, // Convert 0-5 to 0-10 for scoring
+        playCount: trackData.playCountInWindow,
+        playCountInWindow: trackData.playCountInWindow,
+        lastPlayedAt: trackData.mostRecentPlayEver,
+        daysSincePlay: daysSinceLastPlay,
+        lookbackStart,
+        lookbackEnd,
+        now
+      });
 
-      // Play count weight: normalize by saturation, favor frequently played tracks
-      const playCountWeight = Math.min(trackData.playCountInWindow / saturation, 1.0);
-
-      // Rating weight: normalize to 0-1
-      const ratingWeight = trackData.rating / 5.0;
-
-      // Combined score: nostalgia × playCount × (rating OR fallback)
-      // If no rating, use play count in window as quality proxy
-      const qualityScore = trackData.rating > 0
-        ? ratingWeight
-        : Math.min(trackData.playCountInWindow / saturation, 1.0) * 0.6; // Cap unrated at 0.6
-
-      const throwbackScore = nostalgiaWeight * playCountWeight * qualityScore;
+      const throwbackScore = scoringResult.finalScore;
 
       // Skip very low-scoring tracks
       if (throwbackScore < 0.05) {
@@ -248,8 +236,8 @@ export const fetchThrowbackTracks = async (
         playCountInWindow: trackData.playCountInWindow,
         mostRecentPlayEver: trackData.mostRecentPlayEver,
         throwbackScore,
-        nostalgiaWeight,
-        qualityScore,
+        nostalgiaWeight: scoringResult.components.metadata?.nostalgiaWeight ?? 0,
+        qualityScore: scoringResult.components.metadata?.qualityScore ?? 0,
         daysSinceLastPlay
       });
     }
@@ -350,9 +338,9 @@ async function updateCacheUsage(artistNames: string[]): Promise<void> {
 
   const updates = normalizedNames.map(name =>
     db
-      .update(genreCache)
+      .update(artistCache)
       .set({ lastUsedAt: now })
-      .where(eq(genreCache.artistName, name))
+      .where(eq(artistCache.artistName, name))
       .catch(() => { /* silently ignore errors */ })
   );
 
