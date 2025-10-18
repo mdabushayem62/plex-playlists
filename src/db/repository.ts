@@ -1,10 +1,10 @@
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, count, eq, gte, lte } from 'drizzle-orm';
 import { endOfDay, startOfDay, subDays } from 'date-fns';
 
 import type { CandidateTrack } from '../playlist/candidate-builder.js';
 import { APP_ENV } from '../config.js';
 import { getDb } from './index.js';
-import { jobRuns, playlistTracks, playlists } from './schema.js';
+import { customPlaylists, jobRuns, playlistTracks, playlists, trackCache } from './schema.js';
 
 export interface PlaylistMetadataInput {
   window: string;
@@ -22,6 +22,23 @@ export const recordJobStart = async (window: string) => {
     .values({ window, startedAt: new Date(), status: 'running' })
     .returning({ id: jobRuns.id });
   return inserted?.id ?? null;
+};
+
+export const updateJobProgress = async (
+  jobId: number,
+  current: number,
+  total: number,
+  message?: string
+) => {
+  const db = getDb();
+  await db
+    .update(jobRuns)
+    .set({
+      progressCurrent: current,
+      progressTotal: total,
+      progressMessage: message
+    })
+    .where(eq(jobRuns.id, jobId));
 };
 
 export const recordJobCompletion = async (
@@ -101,11 +118,12 @@ export const savePlaylist = async ({
         title: track.title,
         artist: track.artist,
         album: track.album,
-        genres: track.genre ? JSON.stringify([track.genre]) : null,
+        genres: track.genres ? JSON.stringify(track.genres) : null, // Use enriched genres array
         position: track.position,
         score: track.finalScore,
         recencyWeight: track.recencyWeight,
-        fallbackScore: track.fallbackScore
+        fallbackScore: track.fallbackScore,
+        scoringMetadata: track.scoringComponents ? JSON.stringify(track.scoringComponents) : null // Full scoring breakdown for tooltips
       }))
     ).run();
   });
@@ -195,4 +213,41 @@ export const fetchRecentlyRecommendedForWindow = async (
     }
   }
   return set;
+};
+
+/**
+ * Get the total number of tracks in the track cache
+ * Used for library size calculations and cache statistics
+ *
+ * @returns Total count of tracks in the track_cache table
+ */
+export const getTotalTrackCount = async (): Promise<number> => {
+  const db = getDb();
+  const [result] = await db
+    .select({ count: count() })
+    .from(trackCache);
+  return result?.count ?? 0;
+};
+
+/**
+ * Check if user has an enabled discovery playlist configured
+ * Used to conditionally display adaptive discovery features in the UI
+ *
+ * @returns True if at least one enabled discovery playlist exists, false otherwise
+ */
+export const hasEnabledDiscoveryPlaylist = async (): Promise<boolean> => {
+  const db = getDb();
+
+  const [result] = await db
+    .select({ id: customPlaylists.id })
+    .from(customPlaylists)
+    .where(
+      and(
+        eq(customPlaylists.enabled, true),
+        eq(customPlaylists.scoringStrategy, 'discovery')
+      )
+    )
+    .limit(1);
+
+  return result !== undefined;
 };

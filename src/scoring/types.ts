@@ -3,35 +3,52 @@
  * Centralized type definitions for all scoring strategies
  */
 
+import type { HourlyGenrePreference } from '../patterns/types.js';
+
 /**
  * Available scoring strategies
  * Each strategy has a unique approach to ranking tracks
  */
 export type ScoringStrategy =
-  | 'balanced'      // Balanced mix of recency and quality (default for daily playlists)
-  | 'quality'       // Prioritizes track quality (ratings + play count) over recency (custom playlists)
-  | 'discovery'     // Rediscovers forgotten gems (long-unplayed, high-quality tracks)
-  | 'throwback';    // Nostalgic tracks from years ago that you loved back then
+  | "balanced" // Balanced mix of recency and quality (default for daily playlists)
+  | "quality" // Prioritizes track quality (ratings + play count) over recency (custom playlists)
+  | "discovery" // Rediscovers forgotten gems (long-unplayed, high-quality tracks)
+  | "throwback"; // Nostalgic tracks from years ago that you loved back then
 
 /**
  * User-friendly display names for scoring strategies
  */
 export const ScoringStrategyNames: Record<ScoringStrategy, string> = {
-  balanced: 'Recent Favorites',
-  quality: 'Top Rated',
-  discovery: 'Rediscovery',
-  throwback: 'Nostalgia'
+  balanced: "Recent Favorites",
+  quality: "Top Rated",
+  discovery: "Rediscovery",
+  throwback: "Nostalgia",
 };
 
 /**
  * Descriptions for each scoring strategy
  */
 export const ScoringStrategyDescriptions: Record<ScoringStrategy, string> = {
-  balanced: 'Balances recently played tracks with quality ratings (70% recency, 30% quality)',
-  quality: 'Prioritizes highly-rated and frequently-played tracks (60% rating, 30% plays, 10% recency)',
-  discovery: 'Surfaces forgotten gems you haven\'t heard in months (quality × play count penalty × recency penalty)',
-  throwback: 'Brings back nostalgic tracks from 2-5 years ago (nostalgia × play count × quality)'
+  balanced:
+    "Balances recently played tracks with quality ratings (70% recency, 30% quality)",
+  quality:
+    "Prioritizes highly-rated and frequently-played tracks (60% rating, 30% plays, 10% recency)",
+  discovery:
+    "Surfaces forgotten gems you haven't heard in months (quality × play count penalty × recency penalty)",
+  throwback:
+    "Brings back nostalgic tracks from 2-5 years ago (nostalgia × play count × quality)",
 };
+
+/**
+ * Audio features for track (from audio_features table)
+ */
+export interface AudioFeatures {
+  tempo?: number; // BPM
+  energy?: number; // 0-1
+  key?: string; // Musical key
+  scale?: string; // major/minor
+  moodVector?: Record<string, number>; // mood -> confidence map
+}
 
 /**
  * Input context for scoring calculations
@@ -46,6 +63,8 @@ export interface ScoringContext {
   skipCount?: number;
   /** Most recent play date (null if never played) */
   lastPlayedAt: Date | null;
+  /** Date track was added to library (for exploration boost) */
+  addedAt?: Date;
   /** Current date/time for recency calculations */
   now?: Date;
   /** Days since last play (for discovery/throwback) */
@@ -56,6 +75,32 @@ export interface ScoringContext {
   lookbackStart?: number;
   /** Lookback window end (for throwback nostalgia calculation) */
   lookbackEnd?: number;
+
+  // ========== ENHANCED SCORING CONTEXT (Quick Wins) ==========
+
+  /** Track genres for genre matching (from cache or Plex) */
+  genres?: string[];
+  /** Track moods for mood matching (from cache or Plex) */
+  moods?: string[];
+  /** Recently played artists (for artist spacing penalty) */
+  recentArtists?: string[];
+  /** Recently played genres (for genre spacing penalty) */
+  recentGenres?: string[];
+  /** Playlist time window (morning/afternoon/evening) for time-of-day boost */
+  timeWindow?: "morning" | "afternoon" | "evening";
+  /** Audio features for energy/tempo alignment */
+  audioFeatures?: AudioFeatures;
+  /** Artist name for spacing penalty calculations */
+  artistName?: string;
+  /** Target genres to match against (from playlist config or recent history) */
+  targetGenres?: string[];
+  /** Target mood vector to match against (mood -> confidence map) */
+  targetMoodVector?: Record<string, number>;
+
+  // ========== LEARNED PATTERNS (Pattern Detection) ==========
+
+  /** Learned genre preferences from playback history (hourly breakdown) */
+  learnedPatterns?: HourlyGenrePreference[];
 }
 
 /**
@@ -87,6 +132,20 @@ export interface ScoringComponents {
     nostalgiaWeight?: number;
     /** Discovery/Throwback: Strategy-specific score */
     strategyScore?: number;
+    /** Quick Wins: Genre match score (0-1) */
+    genreMatchScore?: number;
+    /** Quick Wins: Mood similarity score (0-1) */
+    moodMatchScore?: number;
+    /** Quick Wins: Artist spacing penalty multiplier (0-1) */
+    artistSpacingPenalty?: number;
+    /** Quick Wins: Time-of-day boost (0-1) */
+    timeOfDayBoost?: number;
+    /** Quick Wins: Energy alignment score (0-1) */
+    energyAlignmentScore?: number;
+    /** Quick Wins: Tempo match score (0-1) */
+    tempoMatchScore?: number;
+    /** Quick Wins: Discovery/exploration boost (0-0.20) */
+    discoveryBoost?: number;
   };
 }
 

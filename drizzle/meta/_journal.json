@@ -134,6 +134,41 @@
       "when": 1760390085929,
       "tag": "0018_colossal_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1760709692479,
+      "tag": "0019_simple_thunderbolts",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1760725773033,
+      "tag": "0020_lying_firedrake",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1760735570192,
+      "tag": "0021_reflective_owl",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1760740575208,
+      "tag": "0022_eminent_quentin_quire",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1760752639618,
+      "tag": "0023_charming_shocker",
+      "breakpoints": true
     }
   ]
 }

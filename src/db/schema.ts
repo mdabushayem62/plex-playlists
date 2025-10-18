@@ -31,7 +31,8 @@ export const playlistTracks = sqliteTable('playlist_tracks', {
   position: integer('position').notNull(),
   score: real('score'),
   recencyWeight: real('recency_weight'),
-  fallbackScore: real('fallback_score')
+  fallbackScore: real('fallback_score'),
+  scoringMetadata: text('scoring_metadata') // JSON object with complete ScoringComponents breakdown
 });
 
 export const jobRuns = sqliteTable('job_runs', {
@@ -149,8 +150,9 @@ export const settingsHistory = sqliteTable(
       .default(sql`(strftime('%s','now')*1000)`)
   },
   table => ({
-    keyIdx: uniqueIndex('settings_history_key_idx').on(table.settingKey),
-    changedAtIdx: uniqueIndex('settings_history_changed_at_idx').on(table.changedAt)
+    // Regular indexes for query performance (not unique - we want multiple history entries)
+    keyIdx: index('settings_history_key_idx').on(table.settingKey),
+    changedAtIdx: index('settings_history_changed_at_idx').on(table.changedAt)
   })
 );
 
@@ -256,6 +258,57 @@ export const trackCache = sqliteTable(
 );
 
 /**
+ * Listening history cache for incremental Plex history updates
+ * Caches full listening history timeline to avoid repeated expensive Plex API calls
+ *
+ * Design:
+ * - First load: Backfill last 90 days from Plex (~10K items, one-time 10-15s cost)
+ * - Subsequent loads: Only fetch NEW items since last cache update (<1s incremental)
+ * - Analytics queries read from local DB instead of Plex (instant)
+ *
+ * Storage: ~5-10MB for 10K history items
+ * Retention: Configurable (default: keep all for historical trends)
+ */
+export const listeningHistoryCache = sqliteTable(
+  'listening_history_cache',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    // Track identifier
+    ratingKey: text('rating_key').notNull(),
+
+    // Playback timestamp (when this track was played)
+    viewedAt: integer('viewed_at', { mode: 'timestamp_ms' }).notNull(),
+
+    // User who played it (for multi-user support, optional)
+    accountId: integer('account_id'),
+
+    // Denormalized track metadata for fast queries without joins
+    title: text('title').notNull(),
+    artistName: text('artist_name').notNull(),
+    albumName: text('album_name'),
+
+    // Raw Plex metadata (JSON) for full analytics
+    // Stores complete Plex history item for future analytics flexibility
+    metadata: text('metadata').notNull(),
+
+    // Cache management
+    cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`)
+  },
+  table => ({
+    // Prevent duplicate entries for same track at same timestamp
+    uniquePlay: uniqueIndex('listening_history_unique_play').on(table.ratingKey, table.viewedAt),
+
+    // Common query patterns
+    viewedAtIdx: index('listening_history_viewed_at_idx').on(table.viewedAt),
+    ratingKeyIdx: index('listening_history_rating_key_idx').on(table.ratingKey),
+    artistIdx: index('listening_history_artist_idx').on(table.artistName)
+  })
+);
+
+/**
  * Audio features table for AudioMuse integration
  * Stores analyzed audio features for tracks (tempo, energy, moods, etc.)
  * Mapped from AudioMuse PostgreSQL database to Plex tracks via metadata matching
@@ -292,6 +345,28 @@ export const audioFeatures = sqliteTable(
     energyIdx: index('audio_features_energy_idx').on(table.energy),
     tempoIdx: index('audio_features_tempo_idx').on(table.tempo),
     artistIdx: index('audio_features_artist_idx').on(table.artist)
+  })
+);
+
+/**
+ * Genre similarity cache for Last.fm-based genre relationships
+ * Stores whether two genres are considered similar by Last.fm
+ * TTL: 90 days (genre taxonomy changes slowly)
+ */
+export const genreSimilarity = sqliteTable(
+  'genre_similarity',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    genre1: text('genre1').notNull(), // Normalized (lowercase)
+    genre2: text('genre2').notNull(), // Normalized (lowercase)
+    isSimilar: integer('is_similar', { mode: 'boolean' }).notNull(), // true if genre2 is in genre1's similar tags
+    cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(strftime('%s','now')*1000)`),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull()
+  },
+  table => ({
+    genrePairIdx: uniqueIndex('genre_similarity_pair_unique').on(table.genre1, table.genre2)
   })
 );
 
@@ -388,6 +463,31 @@ export const adaptiveActions = sqliteTable(
   })
 );
 
+/**
+ * User patterns cache for learned listening preferences
+ * Stores computed patterns from deep playback history analysis
+ * Single-user deployment: one row per user (typically just one row total)
+ * TTL: 7 days (refresh weekly or when stale)
+ */
+export const userPatterns = sqliteTable('user_patterns', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+
+  // Computed pattern data (stored as JSON)
+  hourlyGenrePreferences: text('hourly_genre_preferences').notNull(), // JSON array of HourlyGenrePreference
+  peakHours: text('peak_hours').notNull(), // JSON array of hours (0-23)
+
+  // Analysis metadata
+  sessionsAnalyzed: integer('sessions_analyzed').notNull(),
+  analyzedFrom: integer('analyzed_from', { mode: 'timestamp_ms' }).notNull(),
+  analyzedTo: integer('analyzed_to', { mode: 'timestamp_ms' }).notNull(),
+
+  // Cache tracking
+  lastAnalyzed: integer('last_analyzed', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(strftime('%s','now')*1000)`),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull() // TTL: 7 days
+});
+
 export type PlaylistRecord = typeof playlists.$inferSelect;
 export type PlaylistTrackRecord = typeof playlistTracks.$inferSelect;
 export type JobRunRecord = typeof jobRuns.$inferSelect;
@@ -398,11 +498,14 @@ export type SettingRecord = typeof settings.$inferSelect;
 export type SettingsHistoryRecord = typeof settingsHistory.$inferSelect;
 export type CustomPlaylistRecord = typeof customPlaylists.$inferSelect;
 export type TrackCacheRecord = typeof trackCache.$inferSelect;
+export type ListeningHistoryCacheRecord = typeof listeningHistoryCache.$inferSelect;
 export type AudioFeaturesRecord = typeof audioFeatures.$inferSelect;
+export type GenreSimilarityRecord = typeof genreSimilarity.$inferSelect;
 export type AdaptiveSessionRecord = typeof adaptiveSessions.$inferSelect;
 export type AdaptiveSkipEventRecord = typeof adaptiveSkipEvents.$inferSelect;
 export type AdaptiveCompletionEventRecord = typeof adaptiveCompletionEvents.$inferSelect;
 export type AdaptiveActionRecord = typeof adaptiveActions.$inferSelect;
+export type UserPatternsRecord = typeof userPatterns.$inferSelect;
 
 // Legacy aliases for backward compatibility (will be removed in future)
 /** @deprecated Use ArtistCacheRecord instead */
