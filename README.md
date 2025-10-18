@@ -1,17 +1,18 @@
 # Plex Playlist Enhancer
 
-Automated daily and custom Plex playlists using your listening history, star ratings, and sonic similarity - like Spotify's Daylist, but for Plex and open source.
+Smart Plex playlist automation that learns from your listening habits. Generate daily, weekly, and custom playlists using pattern analysis, star ratings, and intelligent track selection.
 
 ## What This Does
 
 Automatically generates smart playlists for your Plex music library:
 
-- **🕐 Time-Based Daily Playlists** - Morning, afternoon, evening mixes based on your listening patterns
-- **🔮 Weekly Discovery Playlist** - Rediscover forgotten gems from your library
-- **⏮️ Weekly Throwback Playlist** - Nostalgic tracks from your past (adapts to your library history)
-- **🎨 Custom Playlists** - Genre/mood combinations (e.g., "Chill Electronic", "Dark Synthwave")
-- **📊 Smart Selection** - Epsilon-greedy algorithm balancing favorites with exploration
-- **📥 Rating Import** - Bootstrap ratings from Spotify or YouTube Music exports
+- **🕐 Daily Playlists** - Time-based mixes (morning, afternoon, evening) that adapt to your listening patterns
+- **🔮 Discovery** - Surface forgotten gems and tracks you haven't heard in a while
+- **⏮️ Throwback** - Nostalgic tracks from your listening history
+- **🎨 Custom Playlists** - Build genre/mood combinations that match your taste
+- **📊 Intelligent Selection** - Balanced algorithm that favors quality while encouraging exploration
+- **🎯 Pattern Learning** - Adapts to when and what you prefer to listen to
+- **📥 Rating Import** - Bootstrap from Spotify or YouTube Music exports
 
 **Perfect for:**
 - 🎧 Music lovers with large Plex libraries
@@ -68,23 +69,23 @@ Web UI available at **http://localhost:8687**
 
 ## Key Features
 
-### Intelligent Playlist Generation
-- **Epsilon-greedy selection**: 85% exploitation (your favorites) + 15% exploration (discover new tracks)
-- **Time-windowed analysis**: Morning (6-11am), afternoon (12-5pm), evening (6-11pm)
-- **Discovery mode**: Surfaces tracks you haven't heard in 90+ days
-- **Throwback mode**: Nostalgic tracks from your past with adaptive lookback windows (2-5 years for mature libraries, 3-6 months for newer libraries)
-- **Cross-playlist deduplication**: No repeats across daily playlists for 7 days
-
-### Smart Scoring
-- **Exponential recency decay**: Recent plays weighted heavily (configurable half-life)
-- **Star ratings**: Your ratings influence selection (60% weight)
-- **Play count normalization**: Balanced against over-played tracks
+### Smart Selection
+- **Balanced algorithm**: Favors your favorites while encouraging musical exploration
+- **Pattern awareness**: Learns from your listening habits and time-of-day preferences
+- **Cross-playlist deduplication**: Avoids repetition across your daily playlists
+- **Quality scoring**: Combines star ratings, play counts, and listening recency
 - **Sonic similarity**: Expands playlists using Plex's audio analysis
 
+### Playlist Types
+- **Time-based daily**: Morning, afternoon, and evening mixes adapted to your patterns
+- **Discovery**: Rediscover forgotten tracks from your library
+- **Throwback**: Nostalgic tracks from your listening history
+- **Custom**: Genre and mood combinations you design
+
 ### Metadata & Enrichment
-- **Multi-source genre data**: Merges Plex, Last.fm, and Spotify metadata
-- **90-day caching**: Minimize API calls with intelligent cache warming
-- **Rating import**: Bootstrap from Spotify/YouTube Music playlists
+- **Multi-source genre data**: Enriches Plex metadata with Last.fm and Spotify
+- **Intelligent caching**: Minimizes API calls while keeping data fresh
+- **Rating import**: Bootstrap from Spotify or YouTube Music exports
 
 ### Web Interface
 - **Interactive setup wizard**: Get started in minutes
@@ -134,13 +135,15 @@ Web UI available at **http://localhost:8687**
 
 ---
 
-## How It Works (Brief)
+## How It Works
 
-1. **Analyze** your Plex listening history (last 30 days, filtered by time window)
-2. **Score** tracks using recency decay + star ratings + play counts
-3. **Select** using epsilon-greedy: 85% top-scored tracks + 15% diverse exploration
-4. **Expand** with Plex's sonic similarity if needed to reach target size
-5. **Create** Plex playlist and track in database for cross-playlist deduplication
+1. **Analyze** your Plex listening history to understand your preferences
+2. **Score** tracks using a combination of ratings, play patterns, and recency
+3. **Select** tracks that balance your favorites with musical exploration
+4. **Expand** using Plex's sonic similarity when needed
+5. **Create** playlists and track selections to avoid repetition
+
+The system learns from your listening behavior and adapts playlist generation to match your tastes over time.
 
 **Want details?** See [Algorithm Explained](docs/algorithm-explained.md)
 

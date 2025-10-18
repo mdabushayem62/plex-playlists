@@ -2,7 +2,7 @@
   "name": "plex-playlist-enhancer",
   "version": "0.3.0",
   "private": true,
-  "description": "Daily Plex playlist generator with time-sliced history and sonic similarity",
+  "description": "Smart Plex playlist automation with pattern-aware track selection and listening history analysis",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
