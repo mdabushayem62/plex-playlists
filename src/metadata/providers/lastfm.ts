@@ -46,6 +46,20 @@ interface LastFmAlbumInfo {
   message?: string;
 }
 
+interface LastFmSimilarTag {
+  name: string;
+  url: string;
+  streamable: number;
+}
+
+interface LastFmSimilarTagsResponse {
+  similartags?: {
+    tag: LastFmSimilarTag[];
+  };
+  error?: number;
+  message?: string;
+}
+
 export class LastFmClient {
   private apiKey: string | null;
   private enabled: boolean;
@@ -327,6 +341,73 @@ export class LastFmClient {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.warn({ artistName, albumName, error: errorMsg }, 'lastfm album getinfo failed');
       return null;
+    }
+  }
+
+  /**
+   * Get similar tags/genres for a given tag
+   * Returns array of similar tag names sorted by similarity
+   * Used for genre similarity detection to prevent dual-genre bugs
+   *
+   * @param tagName - The tag/genre to find similar tags for
+   * @returns Array of similar tag names (lowercase)
+   */
+  async getSimilarTags(tagName: string): Promise<string[]> {
+    if (!tagName || !this.apiKey) {
+      return [];
+    }
+
+    try {
+      const response = await got.get(LASTFM_API_BASE, {
+        searchParams: {
+          method: 'tag.getsimilar',
+          tag: tagName,
+          api_key: this.apiKey,
+          format: 'json'
+        },
+        timeout: {
+          request: 5000
+        },
+        retry: {
+          limit: 2,
+          methods: ['GET']
+        }
+      }).json<LastFmSimilarTagsResponse>();
+
+      if (response.error) {
+        logger.warn(
+          { tagName, error: response.error, message: response.message },
+          'lastfm tag.getsimilar error'
+        );
+        return [];
+      }
+
+      // Last.fm can return a single object instead of an array if there's only one tag
+      let tags = response.similartags?.tag || [];
+      if (!Array.isArray(tags)) {
+        tags = tags ? [tags] : [];
+      }
+
+      if (tags.length === 0) {
+        logger.debug({ tagName }, 'no similar tags found on lastfm');
+        return [];
+      }
+
+      // Normalize tag names to lowercase
+      const similarTags = tags
+        .map(tag => tag.name.toLowerCase())
+        .slice(0, 20); // Top 20 similar tags
+
+      logger.debug(
+        { tagName, similarTags: similarTags.slice(0, 5), total: similarTags.length },
+        'similar tags from lastfm'
+      );
+
+      return similarTags;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.warn({ tagName, error: errorMsg }, 'lastfm tag.getsimilar request failed');
+      return [];
     }
   }
 }

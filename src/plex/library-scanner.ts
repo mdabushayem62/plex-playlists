@@ -7,6 +7,7 @@
 import { Track } from '@ctrl/plex';
 import { logger } from '../logger.js';
 import { getPlexServer } from './client.js';
+import { MediaQueryBuilder } from './media-query-builder.js';
 
 // Cache for music library section ID (fetched once per session)
 let musicLibrarySectionId: string | null = null;
@@ -44,6 +45,7 @@ export interface LibraryScanOptions {
   maxTracks?: number; // Maximum tracks to fetch (default: unlimited)
   onProgress?: (current: number, total: number, batch: Track[]) => void | Promise<void>;
   signal?: AbortSignal; // Support cancellation
+  queryBuilder?: MediaQueryBuilder; // Server-side filtering via Media Query DSL
 }
 
 export interface LibraryScanResult {
@@ -91,7 +93,8 @@ export const scanLibrary = async (
     batchSize = 50,
     maxTracks = Infinity,
     onProgress,
-    signal
+    signal,
+    queryBuilder
   } = options;
 
   const sectionId = await getMusicLibrarySectionId();
@@ -106,7 +109,12 @@ export const scanLibrary = async (
   let cancelled = false;
 
   logger.info(
-    { sectionId, batchSize, maxTracks: maxTracks === Infinity ? 'unlimited' : maxTracks },
+    {
+      sectionId,
+      batchSize,
+      maxTracks: maxTracks === Infinity ? 'unlimited' : maxTracks,
+      filtered: !!queryBuilder
+    },
     'starting library scan'
   );
 
@@ -119,9 +127,20 @@ export const scanLibrary = async (
     }
 
     try {
-      // Fetch batch using Plex API: /library/sections/{sectionId}/all?type=10&X-Plex-Container-Start={offset}&X-Plex-Container-Size={batchSize}
-      // type=10 is for tracks (type=8 is artists, type=9 is albums)
-      const endpoint = `/library/sections/${sectionId}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${batchSize}`;
+      // Fetch batch using Plex API with optional Media Query DSL filters
+      // Build endpoint: use queryBuilder if provided, otherwise default to type=10
+      let endpoint: string;
+      if (queryBuilder) {
+        // Use Media Query DSL filters (already includes type=10)
+        const baseQuery = queryBuilder.build();
+        // Append pagination parameters
+        const separator = baseQuery.includes('?') ? '&' : '?';
+        endpoint = `${baseQuery}${separator}X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${batchSize}`;
+      } else {
+        // Default behavior: type=10 for tracks
+        endpoint = `/library/sections/${sectionId}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${batchSize}`;
+      }
+
       const data = await server.query<MediaContainer>(endpoint);
 
       const container = data?.MediaContainer;
@@ -296,16 +315,15 @@ export const fetchRecentlyAdded = async (days: number = 1): Promise<Track[]> => 
   }
 
   const server = await getPlexServer();
-  const sinceTimestamp = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
 
   try {
-    // Use addedAt filter: /library/sections/{sectionId}/all?type=10&addedAt>={timestamp}
-    const endpoint = `/library/sections/${sectionId}/all?type=10&addedAt>=${sinceTimestamp}`;
+    // Use addedAt filter with relative date syntax: addedAt>>=-{days}d
+    const endpoint = `/library/sections/${sectionId}/all?type=10&addedAt>>=-${days}d`;
     const data = await server.query<MediaContainer>(endpoint);
     const metadata = data?.MediaContainer?.Metadata;
 
     if (!Array.isArray(metadata) || metadata.length === 0) {
-      logger.debug({ days, sinceTimestamp }, 'no recently added tracks found');
+      logger.debug({ days }, 'no recently added tracks found');
       return [];
     }
 

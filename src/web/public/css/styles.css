@@ -1,0 +1,642 @@
+/**
+ * Plex Playlist Enhancer - Desktop-First Styles
+ * Tautulli-level density optimized for 1080p+ homelab displays
+ */
+
+/* ========== CSS Variables - Desktop-First Spacing ========== */
+:root {
+  /* Desktop-first spacing scale - Tautulli density */
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px - tight elements */
+  --space-2: 0.375rem;  /* 6px - compact */
+  --space-3: 0.5rem;    /* 8px - normal */
+  --space-4: 0.75rem;   /* 12px - section */
+  --space-5: 1rem;      /* 16px - large gap */
+  --space-6: 1.5rem;    /* 24px - major sections only */
+
+  /* Semantic aliases for backward compatibility */
+  --spacing-tight: var(--space-1);
+  --spacing-compact: var(--space-2);
+  --spacing-normal: var(--space-3);
+  --spacing-section: var(--space-4);
+  --spacing-large: var(--space-5);
+}
+
+/* ========== Color Overrides - Muted Dark Theme ========== */
+[data-theme="dark"] {
+  --pico-primary: #4a8fc9;           /* Softer blue (was bright cyan) */
+  --pico-primary-hover: #5ba3d9;     /* Slightly brighter on hover */
+  --pico-primary-focus: rgba(74, 143, 201, 0.25);  /* Subtle focus ring */
+  --pico-primary-inverse: #ffffff;   /* White text on primary */
+
+  /* Soften text colors */
+  --pico-color: #c5d1e0;             /* Softer text color */
+  --pico-h1-color: #e8eef5;          /* Slightly brighter for headings */
+  --pico-h2-color: #e8eef5;
+  --pico-h3-color: #e8eef5;
+}
+
+/* ========== PicoCSS Overrides for Maximum Density ========== */
+* {
+  --pico-spacing: var(--space-2);
+  --pico-typography-spacing-vertical: var(--space-3);
+}
+
+/* ========== Spacing Utilities ========== */
+.m-0 { margin: 0 !important; }
+.mb-1 { margin-bottom: var(--space-1) !important; }
+.mb-2 { margin-bottom: var(--space-2) !important; }
+.mb-3 { margin-bottom: var(--space-3) !important; }
+.mb-4 { margin-bottom: var(--space-4) !important; }
+.mb-5 { margin-bottom: var(--space-5) !important; }
+.mb-6 { margin-bottom: var(--space-6) !important; }
+
+.mt-1 { margin-top: var(--space-1) !important; }
+.mt-2 { margin-top: var(--space-2) !important; }
+.mt-3 { margin-top: var(--space-3) !important; }
+.mt-4 { margin-top: var(--space-4) !important; }
+.mt-5 { margin-top: var(--space-5) !important; }
+.mt-6 { margin-top: var(--space-6) !important; }
+
+.p-0 { padding: 0 !important; }
+.p-2 { padding: var(--space-2) !important; }
+.p-3 { padding: var(--space-3) !important; }
+.p-4 { padding: var(--space-4) !important; }
+.p-5 { padding: var(--space-5) !important; }
+.p-6 { padding: var(--space-6) !important; }
+
+.px-2 { padding-left: var(--space-2) !important; padding-right: var(--space-2) !important; }
+.px-3 { padding-left: var(--space-3) !important; padding-right: var(--space-3) !important; }
+.px-4 { padding-left: var(--space-4) !important; padding-right: var(--space-4) !important; }
+.px-5 { padding-left: var(--space-5) !important; padding-right: var(--space-5) !important; }
+
+.py-2 { padding-top: var(--space-2) !important; padding-bottom: var(--space-2) !important; }
+.py-3 { padding-top: var(--space-3) !important; padding-bottom: var(--space-3) !important; }
+.py-4 { padding-top: var(--space-4) !important; padding-bottom: var(--space-4) !important; }
+.py-5 { padding-top: var(--space-5) !important; padding-bottom: var(--space-5) !important; }
+
+.pt-3 { padding-top: var(--space-3) !important; }
+.pt-4 { padding-top: var(--space-4) !important; }
+.pb-3 { padding-bottom: var(--space-3) !important; }
+.pb-4 { padding-bottom: var(--space-4) !important; }
+
+/* ========== Gap Utilities ========== */
+.gap-1 { gap: var(--space-1) !important; }
+.gap-2 { gap: var(--space-2) !important; }
+.gap-3 { gap: var(--space-3) !important; }
+.gap-4 { gap: var(--space-4) !important; }
+.gap-5 { gap: var(--space-5) !important; }
+
+/* ========== Flexbox Utilities ========== */
+.flex { display: flex; }
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.flex-center {
+  display: flex;
+  align-items: center;
+}
+.flex-start {
+  display: flex;
+  align-items: flex-start;
+}
+.flex-wrap { flex-wrap: wrap; }
+.flex-1 { flex: 1; }
+.justify-end { justify-content: flex-end; }
+.justify-center { justify-content: center; }
+
+/* ========== Grid Utilities ========== */
+.grid-dense {
+  display: grid;
+  gap: var(--space-2);
+}
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+.grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); }
+.grid-8 { display: grid; grid-template-columns: repeat(8, 1fr); }
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-2); }
+.grid-auto-wide { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-2); }
+
+/* ========== Card Components ========== */
+.card {
+  background: var(--pico-card-background-color);
+  border-radius: 0.25rem;
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.card-dense {
+  background: var(--pico-card-background-color);
+  border-radius: 0.25rem;
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.card-header {
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.card-section {
+  background: var(--pico-card-background-color);
+  padding: var(--space-4);
+  border-radius: 0.25rem;
+  margin-bottom: var(--space-3);
+}
+
+/* ========== Config Cards ========== */
+.config-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.25rem;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  transition: border-color 0.2s;
+}
+.config-card:hover {
+  border-color: var(--pico-primary);
+}
+.config-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  padding-bottom: var(--space-4);
+}
+.config-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: 1.25rem;
+}
+.config-card-icon {
+  font-size: 1.5rem;
+}
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--pico-card-background-color);
+}
+.config-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.config-label {
+  font-weight: 500;
+  color: var(--pico-muted-color);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.config-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ========== Border Utilities ========== */
+.border-top { border-top: 1px solid var(--pico-muted-border-color); }
+.border-bottom { border-bottom: 1px solid var(--pico-muted-border-color); }
+.border { border: 1px solid var(--pico-muted-border-color); }
+.border-primary { border: 1px solid var(--pico-primary); }
+.border-left-primary { border-left: 4px solid var(--pico-primary); }
+.border-left-success { border-left: 4px solid var(--pico-ins-color); }
+.border-left-error { border-left: 4px solid var(--pico-del-color); }
+
+.rounded { border-radius: 0.25rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.rounded-full { border-radius: 9999px; }
+
+/* ========== Text Utilities ========== */
+.text-muted { color: var(--pico-muted-color); }
+.text-sm { font-size: 0.8125rem; }
+.text-xs { font-size: 0.75rem; }
+.text-muted-sm {
+  color: var(--pico-muted-color);
+  font-size: 0.875rem;
+}
+.text-muted-xs {
+  color: var(--pico-muted-color);
+  font-size: 0.75rem;
+}
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+
+/* ========== Status Utilities ========== */
+.status-badge {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.status-success {
+  background-color: var(--pico-ins-color);
+  color: var(--pico-background-color);
+}
+.status-failed {
+  background-color: var(--pico-del-color);
+  color: var(--pico-background-color);
+}
+.status-running {
+  background-color: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 0.25rem;
+}
+.status-dot.status-success { background: var(--pico-ins-color); }
+.status-dot.status-warning { background: #ff9800; }
+.status-dot.status-error { background: var(--pico-del-color); }
+.status-dot.status-muted { background: var(--pico-muted-color); }
+
+/* ========== Row Item Utilities ========== */
+.row-item {
+  padding: var(--space-2) var(--space-3);
+  background: var(--pico-background-color);
+  border-radius: 0.25rem;
+}
+
+/* ========== Playlist Utilities ========== */
+.playlist-emoji {
+  font-size: 1.25rem;
+  margin-right: 0.25rem;
+}
+
+/* ========== Stat Cards - Tautulli Style ========== */
+.stat-card {
+  background: var(--pico-card-background-color);
+  padding: var(--space-2) var(--space-3);
+  border-radius: 0.25rem;
+  margin-bottom: var(--space-2);
+}
+.stat-card h3 {
+  margin: 0 0 0.125rem 0;
+  font-size: 1.25rem;
+  line-height: 1.1;
+  font-weight: 600;
+}
+.stat-card p {
+  margin: 0;
+  color: var(--pico-muted-color);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+.stat-card small {
+  font-size: 0.7rem;
+  line-height: 1.1;
+}
+
+/* ========== Compact Header ========== */
+header {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  margin-bottom: var(--space-3);
+}
+header h1 {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+/* ========== Compact Navigation ========== */
+nav.main-nav {
+  margin-top: var(--space-2);
+}
+nav.main-nav ul {
+  display: flex;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+nav.main-nav a {
+  font-size: 0.8125rem;
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+nav.main-nav a:hover {
+  background: var(--pico-card-background-color);
+  border-radius: 0.25rem;
+  border-bottom-color: transparent;
+}
+nav.main-nav a.active {
+  font-weight: 600;
+  background: var(--pico-card-background-color);
+  border-radius: 0.25rem;
+  border-bottom: 2px solid var(--pico-primary);
+}
+
+/* ========== Compact Sections - Tautulli Density ========== */
+section {
+  margin-top: var(--space-4) !important;
+  margin-bottom: var(--space-4) !important;
+}
+
+/* ========== Compact Articles/Cards - Tautulli Density ========== */
+article {
+  margin-bottom: var(--space-3) !important;
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ========== High-Density Tables - Tautulli Style ========== */
+table {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: 0.8125rem;
+}
+table th,
+table td {
+  padding: 0.3125rem 0.5rem;
+  line-height: 1.3;
+}
+table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+/* ========== Compact Forms ========== */
+form label {
+  margin-bottom: var(--space-2);
+  font-size: 0.875rem;
+}
+input, select, textarea {
+  margin-bottom: var(--space-2);
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+/* ========== Compact Headings - Tautulli Density ========== */
+h2 {
+  margin: 0 0 var(--space-2) 0;
+  line-height: 1.2;
+  font-size: 1.375rem;
+  font-weight: 600;
+}
+h3 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 1.0625rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+h4 {
+  margin: 0 0 var(--space-1) 0;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+/* ========== Compact Buttons ========== */
+button, [role="button"] {
+  padding: 0.3125rem 0.625rem;
+  font-size: 0.8125rem;
+  margin: 0.1875rem 0;
+  transition: all 0.15s ease;
+}
+button:hover, [role="button"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+button:active, [role="button"]:active {
+  transform: translateY(0);
+}
+button.action-btn, .action-btn {
+  padding: 0.1875rem 0.4375rem;
+  font-size: 0.75rem;
+}
+
+/* ========== Compact Paragraphs ========== */
+p {
+  margin-bottom: var(--space-2);
+  line-height: 1.4;
+}
+p:last-child {
+  margin-bottom: 0;
+}
+
+/* ========== Collapsible Sections for Dense Settings Pages ========== */
+details {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.25rem;
+  padding: 0;
+}
+details summary {
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.875rem;
+  user-select: none;
+  background: var(--pico-card-background-color);
+  border-radius: 0.25rem;
+}
+details summary:hover {
+  background: var(--pico-background-color);
+}
+details[open] summary {
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  border-radius: 0.25rem 0.25rem 0 0;
+  margin-bottom: var(--space-2);
+}
+details > *:not(summary) {
+  padding: 0 var(--space-4) var(--space-3) var(--space-4);
+}
+
+/* ========== Chart/Visualization Containers ========== */
+.chart-container {
+  min-height: 400px;
+  position: relative;
+}
+.chart-container canvas {
+  max-height: 500px;
+}
+
+/* ========== Toast Notifications ========== */
+#toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 400px;
+}
+.toast {
+  padding: var(--space-5);
+  border-radius: var(--space-3);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: translateX(100%);
+  transition: all 0.3s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+.toast-success {
+  background: var(--pico-ins-color);
+  color: var(--pico-background-color);
+}
+.toast-error {
+  background: var(--pico-del-color);
+  color: var(--pico-background-color);
+}
+.toast-info {
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+.toast-warning {
+  background: #ff9800;
+  color: var(--pico-background-color);
+}
+
+/* ========== Tab Styling for Desktop-First Tabs Pattern ========== */
+[role="tablist"] button[role="tab"] {
+  border-radius: 0.25rem 0.25rem 0 0;
+  transition: all 0.2s ease;
+}
+[role="tablist"] button[role="tab"]:hover:not(.tab-selected) {
+  background: var(--pico-card-background-color);
+}
+[role="tablist"] button[role="tab"].tab-selected {
+  position: relative;
+}
+[role="tablist"] button[role="tab"].tab-selected::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--pico-primary);
+}
+
+/* ========== Sidebar Layout ========== */
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#main-wrapper {
+  margin-left: 220px;
+  min-height: 100vh;
+}
+
+/* ========== Responsive Tables ========== */
+table {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* ========== Mobile Overrides ========== */
+@media (max-width: 767px) {
+  nav.main-nav ul {
+    flex-wrap: wrap;
+  }
+  nav.main-nav a {
+    font-size: 0.8rem;
+  }
+  .stat-card {
+    min-width: 150px;
+  }
+
+  /* Mobile: collapsible sidebar with hamburger menu */
+  #sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+  }
+
+  .nav-toggle:checked ~ #sidebar {
+    transform: translateX(0);
+  }
+
+  .hamburger-icon {
+    display: block !important;
+    transition: background 0.2s ease;
+  }
+
+  .hamburger-icon:hover {
+    background: var(--pico-background-color);
+  }
+
+  .hamburger-icon:active {
+    transform: scale(0.95);
+  }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    cursor: pointer;
+  }
+
+  .nav-toggle:checked ~ .sidebar-backdrop {
+    display: block;
+  }
+
+  #main-wrapper {
+    margin-left: 0;
+  }
+
+  .config-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+  .config-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+}
+
+/* ========== Desktop: Always Visible Sidebar ========== */
+@media (min-width: 768px) {
+  #sidebar {
+    transform: translateX(0) !important;
+  }
+
+  .hamburger-icon,
+  .sidebar-backdrop {
+    display: none !important;
+  }
+
+  table {
+    display: table;
+    overflow-x: visible;
+    white-space: normal;
+  }
+}
+
+/* ========== Tooltip Utilities ========== */
+.tooltip {
+  position: relative;
+  cursor: help;
+  border-bottom: 1px dotted var(--pico-muted-color);
+}

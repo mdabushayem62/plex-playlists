@@ -6,21 +6,84 @@
 import { Router } from 'express';
 import { getViewPath } from '../server.js';
 import { getDb } from '../../db/index.js';
-import { jobRuns } from '../../db/schema.js';
-import { sql } from 'drizzle-orm';
+import { jobRuns, trackCache } from '../../db/schema.js';
+import { sql, eq, and, desc } from 'drizzle-orm';
 import { setupState } from '../../db/schema.js';
-import { getPlexServer } from '../../plex/client.js';
 import { subDays } from 'date-fns';
 import {
   generateListeningHeatmap,
   calculateTrackStatistics,
   findForgottenFavorites,
   calculateDiversityMetrics,
-  buildArtistConstellation
+  buildArtistConstellation,
+  isHistoryItem
 } from '../../analytics/analytics-service.js';
 import { getCacheStats } from '../../cache/cache-cli.js';
+import { isHtmxRequest, withOobSidebar } from '../middleware/htmx.js';
+import {
+  updateHistoryCache,
+  getHistoryFromCache
+} from '../../analytics/listening-history-cache.js';
 
 export const analyticsRouter = Router();
+
+/**
+ * JSON endpoint for constellation data only
+ * Used for dynamic size updates without full page reload
+ */
+analyticsRouter.get('/constellation', async (req, res) => {
+  try {
+    const constellationSize = Math.min(
+      Math.max(parseInt(req.query.size as string || '30', 10), 10),
+      200
+    );
+
+    // Fetch listening history for artist calculation
+    const mindate = subDays(new Date(), 90);
+    let history: unknown[] = [];
+
+    try {
+      await updateHistoryCache();
+      history = await getHistoryFromCache({
+        since: mindate,
+        limit: 10000
+      });
+    } catch (error) {
+      console.warn('Could not fetch listening history for constellation:', error);
+    }
+
+    // Build top N artists from history
+    const historyArray: unknown[] = Array.isArray(history) ? history : [];
+    const artistPlayCountMap = historyArray.reduce<Map<string, number>>((map, item) => {
+      if (isHistoryItem(item) && item.type === 'track' && item.grandparentTitle) {
+        const artist = item.grandparentTitle;
+        map.set(artist, (map.get(artist) || 0) + 1);
+      }
+      return map;
+    }, new Map<string, number>());
+
+    const topArtistsFromHistory = Array.from(artistPlayCountMap.entries())
+      .map(([artist, playCount]): { artist: string; playCount: number } => ({ artist, playCount }))
+      .sort((a, b) => b.playCount - a.playCount)
+      .slice(0, constellationSize);
+
+    // Build constellation
+    const constellationData = await buildArtistConstellation(topArtistsFromHistory, 0.2);
+
+    // Return JSON
+    res.json({
+      success: true,
+      size: constellationSize,
+      data: constellationData
+    });
+  } catch (error) {
+    console.error('Constellation API error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to build constellation'
+    });
+  }
+});
 
 /**
  * Main analytics dashboard - YOUR listening patterns and library stats
@@ -28,7 +91,6 @@ export const analyticsRouter = Router();
 analyticsRouter.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const server = await getPlexServer();
 
     // 1. Genre Distribution Data (from cache)
     const { artistCache } = await import('../../db/schema.js');
@@ -46,80 +108,160 @@ analyticsRouter.get('/', async (req, res) => {
     const cacheStats = await getCacheStats();
     const cacheHealth = {
       artists: {
-        cached: cacheStats.artists.totalEntries,
+        cached: cacheStats.artists.total,
         expired: cacheStats.artists.expired,
-        total: cacheStats.artists.totalEntries, // Use cache count as proxy (Plex has no direct count API)
+        total: cacheStats.artists.total, // Use cache count as proxy (Plex has no direct count API)
         coverage: 100 // Assume 100% since we use cache as source of truth
       },
       albums: {
-        cached: cacheStats.albums.totalEntries,
+        cached: cacheStats.albums.total,
         expired: cacheStats.albums.expired,
-        total: cacheStats.albums.totalEntries,
+        total: cacheStats.albums.total,
         coverage: 100
       }
     };
 
-    // 3. LISTENING HISTORY - Fetch from Plex (last 90 days)
+    // 3. LISTENING HISTORY - Use cache with incremental updates
     const mindate = subDays(new Date(), 90);
     let history: unknown[] = [];
 
     try {
-      history = await server.history(5000, mindate);
+      // Update cache with latest Plex data (incremental, fast)
+      await updateHistoryCache();
+
+      // Fetch from local cache (instant)
+      history = await getHistoryFromCache({
+        since: mindate,
+        limit: 10000
+      });
     } catch (error) {
-      console.warn('Could not fetch listening history:', error);
+      console.warn('Could not fetch listening history from cache:', error);
       history = [];
     }
 
     // 4. Generate time-of-day heatmap (analytics service)
-    const heatmapGrid = generateListeningHeatmap(history);
+    let heatmapGrid;
+    try {
+      heatmapGrid = generateListeningHeatmap(history);
+    } catch (error) {
+      console.error('Failed to generate heatmap:', error);
+      heatmapGrid = Array(7).fill(null).map(() => Array(24).fill(0));
+    }
 
     // 5. Calculate track statistics (analytics service)
-    const trackStats = calculateTrackStatistics(history);
+    let trackStats: ReturnType<typeof calculateTrackStatistics>;
+    try {
+      trackStats = calculateTrackStatistics(history);
+    } catch (error) {
+      console.error('Failed to calculate track stats:', error);
+      trackStats = [];
+    }
 
-    // For scatter plot: We'll use a sample of tracks
-    // TODO: In future, cache track ratings in DB during playlist generation
-    const ratingPlayCountData: Array<{
-      title: string;
-      artist: string;
-      playCount: number;
-      userRating: number;
-      ratingKey: string;
-    }> = trackStats.slice(0, 100).map(t => ({
-      ...t,
-      userRating: 0.5 // Placeholder - would need to fetch from Plex or cache
+    // For scatter plot: Get rated tracks from cache for visualization
+    const ratedTracksFromCache = await db
+      .select({
+        title: trackCache.title,
+        artist: trackCache.artistName,
+        playCount: trackCache.viewCount,
+        userRating: trackCache.userRating,
+        ratingKey: trackCache.ratingKey
+      })
+      .from(trackCache)
+      .where(and(
+        sql`${trackCache.userRating} IS NOT NULL`,
+        sql`${trackCache.viewCount} > 0`
+      ))
+      .orderBy(desc(trackCache.viewCount))
+      .limit(100);
+
+    const ratingPlayCountData = ratedTracksFromCache.map(t => ({
+      title: t.title,
+      artist: t.artist,
+      playCount: t.playCount || 0,
+      userRating: t.userRating || 0,
+      ratingKey: t.ratingKey
     }));
 
     // 6. Find forgotten favorites (analytics service)
-    const forgottenFavorites = findForgottenFavorites(trackStats, {
-      minDaysSince: 30,
-      minPlayCount: 3,
-      limit: 50
-    });
+    let forgottenFavorites: ReturnType<typeof findForgottenFavorites>;
+    try {
+      forgottenFavorites = findForgottenFavorites(trackStats, {
+        minDaysSince: 30,
+        minPlayCount: 3,
+        limit: 50
+      });
+    } catch (error) {
+      console.error('Failed to find forgotten favorites:', error);
+      forgottenFavorites = [];
+    }
 
-    // 6. TOP UNRATED TRACKS - For now, just show frequently played tracks
-    // TODO: Cache user ratings in DB during playlist generation
-    const topUnratedTracks: Array<{
-      title: string;
-      artist: string;
-      album: string;
-      playCount: number;
-    }> = trackStats.slice(0, 20).map(t => ({
+    // 6. TOP UNRATED TRACKS - Show frequently played but unrated tracks from cache
+    const unratedTracksFromCache = await db
+      .select({
+        title: trackCache.title,
+        artist: trackCache.artistName,
+        album: trackCache.albumName,
+        playCount: trackCache.viewCount
+      })
+      .from(trackCache)
+      .where(and(
+        eq(trackCache.isUnrated, true),
+        sql`${trackCache.viewCount} > 0`
+      ))
+      .orderBy(desc(trackCache.viewCount))
+      .limit(20);
+
+    const topUnratedTracks = unratedTracksFromCache.map(t => ({
       title: t.title,
       artist: t.artist,
-      album: t.album,
-      playCount: t.playCount
+      album: t.album || 'Unknown Album',
+      playCount: t.playCount || 0
     }));
 
     // 7. Calculate diversity metrics (analytics service)
-    const diversityMetrics = await calculateDiversityMetrics(history);
+    let diversityMetrics;
+    try {
+      diversityMetrics = await calculateDiversityMetrics(history);
+    } catch (error) {
+      console.error('Failed to calculate diversity metrics:', error);
+      diversityMetrics = {
+        genreDiversity: '0.0',
+        totalGenres: 0,
+        totalArtists: 0,
+        concentrationScore: '0.0',
+        top10Artists: []
+      };
+    }
 
     // 8. Build artist constellation network (analytics service)
-    // Use top artists from diversity metrics
-    const topArtistsForConstellation = diversityMetrics.top10Artists.map(a => ({
-      artist: a.artist,
-      playCount: a.appearances
-    }));
-    const constellationData = await buildArtistConstellation(topArtistsForConstellation, 0.2);
+    // Get constellation size from query param (default: 30)
+    const constellationSize = Math.min(
+      Math.max(parseInt(req.query.constellationSize as string || '30', 10), 10),
+      200
+    );
+
+    let constellationData;
+    try {
+      // Sort all artists by play count and take the requested number
+      const historyArray: unknown[] = Array.isArray(history) ? history : [];
+      const artistPlayCountMap = historyArray.reduce<Map<string, number>>((map, item) => {
+        if (isHistoryItem(item) && item.type === 'track' && item.grandparentTitle) {
+          const artist = item.grandparentTitle;
+          map.set(artist, (map.get(artist) || 0) + 1);
+        }
+        return map;
+      }, new Map<string, number>());
+
+      const topArtistsFromHistory = Array.from(artistPlayCountMap.entries())
+        .map(([artist, playCount]): { artist: string; playCount: number } => ({ artist, playCount }))
+        .sort((a, b) => b.playCount - a.playCount)
+        .slice(0, constellationSize);
+
+      constellationData = await buildArtistConstellation(topArtistsFromHistory, 0.2);
+    } catch (error) {
+      console.error('Failed to build artist constellation:', error);
+      constellationData = { nodes: [], links: [] };
+    }
 
     // 9. PLAYLIST GENERATION STATS (optional, minor section)
     const thirtyDaysAgo = new Date();
@@ -145,9 +287,7 @@ analyticsRouter.get('/', async (req, res) => {
     const setupStates = await db.select().from(setupState).limit(1);
     const setupComplete = setupStates.length > 0 && setupStates[0].completed;
 
-    // Render TSX component
-    const { AnalyticsPage } = await import(getViewPath('analytics/index.tsx'));
-    const html = AnalyticsPage({
+    const data = {
       genreDistribution: genreDistribution.map(g => ({
         genre: g.genre || 'Unknown',
         count: g.count
@@ -173,16 +313,38 @@ analyticsRouter.get('/', async (req, res) => {
       })),
       diversityMetrics,
       constellationData,
-      page: 'analytics',
-      setupComplete,
       breadcrumbs: [
         { label: 'Dashboard', url: '/' },
         { label: 'Nerd Lines', url: null }
       ]
-    });
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { AnalyticsContent } = await import(getViewPath('analytics/index.tsx'));
+      const content = AnalyticsContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'analytics',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { AnalyticsPage } = await import(getViewPath('analytics/index.tsx'));
+      const html = AnalyticsPage({
+        ...data,
+        page: 'analytics',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Analytics page error:', error);
     res.status(500).send('Internal server error');

@@ -78,7 +78,10 @@ export interface AnalyticsPageProps {
   breadcrumbs: Array<{ label: string; url: string | null }>;
 }
 
-export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
+/**
+ * Analytics content only (for HTMX partial rendering)
+ */
+export function AnalyticsContent(props: Omit<AnalyticsPageProps, 'page' | 'setupComplete'>) {
   const {
     genreDistribution,
     cacheHealth,
@@ -90,14 +93,11 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
     recencyDecayData,
     diversityMetrics,
     constellationData,
-    page,
-    setupComplete,
     breadcrumbs
   } = props;
 
   return (
-    <Layout title="Nerd Lines" page={page} setupComplete={setupComplete}>
-      <div>
+    <div>
         {/* Breadcrumbs */}
         <nav aria-label="breadcrumb" style="margin-bottom: 1rem;">
           <ol style="display: flex; list-style: none; padding: 0; gap: 0.5rem; font-size: 0.875rem; color: var(--pico-muted-color);">
@@ -121,11 +121,19 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
           Analytics and insights about your music library and playlist generation.
         </p>
 
+        {/* Loading indicator (hidden after page load) */}
+        <div id="analytics-loading" style="display: none; text-align: center; padding: 3rem; background: var(--pico-card-background-color); border-radius: 0.5rem; margin-bottom: 2rem;">
+          <div class="loading" style="margin: 0 auto 1rem auto;"></div>
+          <p style="color: var(--pico-muted-color); margin: 0;">
+            Loading analytics data... This may take a moment for large libraries.
+          </p>
+        </div>
+
         {/* Genre Distribution */}
         <section style="margin-bottom: 3rem;">
           <h3>Genre Distribution (Top 20)</h3>
           <div class="stat-card">
-            <canvas id="genreChart" style="max-height: 400px;"></canvas>
+            <canvas id="genreChart" style="height: 600px; max-height: 600px;"></canvas>
           </div>
         </section>
 
@@ -136,7 +144,7 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             When do YOU listen to music? Based on your last 90 days of listening history. Larger bubbles = more plays.
           </p>
           <div class="stat-card">
-            <canvas id="heatmapChart" style="min-height: 300px, max-height: 400px;"></canvas>
+            <canvas id="heatmapChart" style="height: 600px; max-height: 600px;"></canvas>
           </div>
         </section>
 
@@ -144,9 +152,43 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
         <section style="margin-bottom: 3rem;">
           <h3>Artist Constellation</h3>
           <p style="color: var(--pico-muted-color); font-size: 0.875rem; margin-bottom: 1rem;">
-            Your top 30 artists visualized by genre similarity. Artists connected by lines share genres.
+            Your top artists visualized by genre similarity. Artists connected by lines share genres.
           </p>
-          <div class="stat-card">
+
+          {/* Size selector */}
+          <div style="margin-bottom: 1rem;">
+            <label style="font-size: 0.875rem; color: var(--pico-muted-color); margin-right: 1rem;">
+              Graph size:
+            </label>
+            <label style="display: inline-block; margin-right: 1rem; cursor: pointer;">
+              <input type="radio" name="constellation-size" value="30" checked
+                     onchange="reloadConstellation(30)" style="margin-right: 0.25rem;"/>
+              30 artists
+            </label>
+            <label style="display: inline-block; margin-right: 1rem; cursor: pointer;">
+              <input type="radio" name="constellation-size" value="50"
+                     onchange="reloadConstellation(50)" style="margin-right: 0.25rem;"/>
+              50 artists
+            </label>
+            <label style="display: inline-block; margin-right: 1rem; cursor: pointer;">
+              <input type="radio" name="constellation-size" value="100"
+                     onchange="reloadConstellation(100)" style="margin-right: 0.25rem;"/>
+              100 artists
+            </label>
+            <label style="display: inline-block; margin-right: 1rem; cursor: pointer;">
+              <input type="radio" name="constellation-size" value="200"
+                     onchange="reloadConstellation(200)" style="margin-right: 0.25rem;"/>
+              200 artists
+            </label>
+          </div>
+
+          <div class="stat-card" id="constellation-container">
+            <div id="constellation-loading" style="display: none; text-align: center; padding: 3rem;">
+              <div class="loading" style="margin: 0 auto 1rem auto;"></div>
+              <p style="color: var(--pico-muted-color); margin: 0;">
+                Loading constellation data...
+              </p>
+            </div>
             <canvas id="constellationChart" style="max-height: 600px;"></canvas>
           </div>
         </section>
@@ -190,7 +232,7 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             Based on YOUR library ratings and play counts. Top-left: guilty pleasures (high plays, lower ratings). Top-right: hidden gems (high ratings, fewer plays).
           </p>
           <div class="stat-card">
-            <canvas id="scatterChart" style="max-height: 500px;"></canvas>
+            <canvas id="scatterChart" style="height: 600px; max-height: 600px;"></canvas>
           </div>
         </section>
 
@@ -201,7 +243,7 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             Tracks you used to love but haven't appeared in playlists recently. Time to rediscover them?
           </p>
           <div class="stat-card">
-            <canvas id="recencyChart" style="max-height: 400px;"></canvas>
+            <canvas id="recencyChart" style="height: 600px; max-height: 600px;"></canvas>
           </div>
         </section>
 
@@ -236,7 +278,6 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             </table>
           )}
         </section>
-      </div>
 
         {/* Cache Health Gauges */}
         <section style="margin-bottom: 3rem;">
@@ -360,16 +401,25 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
         <section style="margin-bottom: 3rem;">
           <h3>Playlist Generation Success Rate</h3>
           <div class="stat-card">
-            <canvas id="successChart" style="max-height: 300px;"></canvas>
+            <canvas id="successChart" style="height: 500px; max-height: 500px;"></canvas>
           </div>
         </section>
 
-      {/* Load Chart.js and render charts */}
-      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+      {/* Render charts (Chart.js loaded in layout.tsx) */}
       <script>{`
-        // Genre Distribution Chart
-        const genreCtx = document.getElementById('genreChart');
-        if (genreCtx) {
+        // Wait for Chart.js to load before initializing charts
+        function initCharts() {
+          if (typeof Chart === 'undefined') {
+            console.log('Waiting for Chart.js to load...');
+            setTimeout(initCharts, 50);
+            return;
+          }
+
+          console.log('Chart.js loaded, initializing charts');
+
+          // Genre Distribution Chart
+          const genreCtx = document.getElementById('genreChart');
+          if (genreCtx) {
           new Chart(genreCtx, {
             type: 'bar',
             data: {
@@ -564,14 +614,25 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
         }
 
         // Artist Constellation (Force-Directed Network)
-        const constellationCtx = document.getElementById('constellationChart');
-        if (constellationCtx) {
-          const nodes = ${JSON.stringify(constellationData.nodes)};
-          const links = ${JSON.stringify(constellationData.links)};
+        // Reusable function to render constellation with dynamic sizing
+        function renderConstellation(nodes, links) {
+          const constellationCtx = document.getElementById('constellationChart');
+          if (!constellationCtx) return;
 
-          // Simple force simulation in Canvas
-          const width = constellationCtx.parentElement.offsetWidth;
-          const height = 600;
+          console.log('Constellation data:', { nodeCount: nodes.length, linkCount: links.length });
+
+          const nodeCount = nodes.length;
+
+          // Dynamic canvas sizing based on node count
+          const baseWidth = constellationCtx.parentElement.offsetWidth || 800;
+          const width = nodeCount > 100 ? Math.max(baseWidth, 1200) : nodeCount > 50 ? Math.max(baseWidth, 900) : baseWidth;
+          const height = nodeCount > 100 ? 1000 : nodeCount > 50 ? 800 : 600;
+
+          // Set canvas dimensions (required for proper canvas rendering)
+          constellationCtx.width = width;
+          constellationCtx.height = height;
+
+          console.log('Constellation canvas size:', { width, height, nodeCount });
 
           // Initialize node positions randomly
           nodes.forEach(node => {
@@ -581,14 +642,14 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             node.vy = 0;
           });
 
-          // Force simulation parameters
+          // Dynamic force simulation parameters based on graph size
           const centerForce = 0.01;
-          const repelForce = 500;
-          const linkForce = 0.1;
+          const repelForce = nodeCount > 100 ? 800 : nodeCount > 50 ? 650 : 500;
+          const linkForce = nodeCount > 100 ? 0.05 : 0.1;
           const damping = 0.8;
 
           // Run simulation
-          function simulate(iterations = 100) {
+          function simulate(iterations = 150) {
             for (let iter = 0; iter < iterations; iter++) {
               // Reset forces
               nodes.forEach(node => {
@@ -663,9 +724,13 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             }
           });
 
+          // Dynamic label sizing
+          const fontSize = nodeCount > 100 ? 8 : 10;
+          const minRadius = nodeCount > 100 ? 3 : 5;
+
           // Draw nodes
           nodes.forEach(node => {
-            const radius = 5 + Math.sqrt(node.appearances) * 2;
+            const radius = minRadius + Math.sqrt(node.appearances) * 2;
             ctx.fillStyle = 'rgba(66, 135, 245, 0.8)';
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
@@ -674,18 +739,63 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Draw label
+            // Draw label (smaller font for large graphs)
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.font = '10px sans-serif';
+            ctx.font = fontSize + 'px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(node.name, node.x, node.y - radius - 5);
           });
         }
 
+        // Initial render with server data
+        const initialNodes = ${JSON.stringify(constellationData.nodes)};
+        const initialLinks = ${JSON.stringify(constellationData.links)};
+        renderConstellation(initialNodes, initialLinks);
+
+        // Function to reload constellation with different size via JSON API
+        window.reloadConstellation = async function(size) {
+          const loading = document.getElementById('constellation-loading');
+          const canvas = document.getElementById('constellationChart');
+
+          // Show loading indicator
+          if (loading) loading.style.display = 'block';
+          if (canvas) canvas.style.opacity = '0.3';
+
+          try {
+            // Fetch constellation data from dedicated JSON endpoint
+            const response = await fetch('/analytics/constellation?size=' + size);
+
+            if (!response.ok) {
+              throw new Error('Failed to fetch constellation data: ' + response.statusText);
+            }
+
+            const result = await response.json();
+
+            if (result.success && result.data) {
+              console.log('Loaded constellation:', result.size, 'artists');
+              renderConstellation(result.data.nodes, result.data.links);
+            } else {
+              throw new Error(result.error || 'Invalid response format');
+            }
+          } catch (error) {
+            console.error('Failed to reload constellation:', error);
+            alert('Failed to load constellation data. Please try again.');
+          } finally {
+            // Hide loading indicator
+            if (loading) loading.style.display = 'none';
+            if (canvas) canvas.style.opacity = '1';
+          }
+        };
+
         // Rating vs Play Count Scatter Chart
         const scatterCtx = document.getElementById('scatterChart');
         if (scatterCtx) {
           const scatterData = ${JSON.stringify(ratingPlayCountData)};
+
+          console.log('Hidden Gems scatter plot data:', { trackCount: scatterData.length });
+          if (scatterData.length > 0) {
+            console.log('Sample track:', scatterData[0]);
+          }
 
           new Chart(scatterCtx, {
             type: 'scatter',
@@ -830,7 +940,25 @@ export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
             }
           });
         }
+
+        } // End initCharts function
+
+        // Call init function (will wait for Chart.js if needed)
+        initCharts();
       `}</script>
+    </div>
+  );
+}
+
+/**
+ * Full analytics page with layout (for regular requests)
+ */
+export function AnalyticsPage(props: AnalyticsPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title="Nerd Lines" page={page} setupComplete={setupComplete}>
+      <AnalyticsContent {...contentProps} />
     </Layout>
   );
 }

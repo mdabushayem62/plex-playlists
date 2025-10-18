@@ -82,18 +82,17 @@ webhooksRouter.post('/plex', upload.single('thumb'), async (req, res) => {
     );
 
     // Respond immediately to meet 5-second requirement
-    // Processing happens asynchronously (will be implemented in later steps)
     res.status(200).json({
       status: 'received',
       event: payload.event,
       timestamp: Date.now()
     });
 
-    // TODO (Week 2): Process event asynchronously
-    // - Detect skip events (media.stop with low completion %)
-    // - Track session state (correlate to PlayQueue)
-    // - Analyze patterns (genre fatigue, artist aversion)
-    // - Trigger queue adaptations if patterns detected
+    // Process event asynchronously (don't block response)
+    const { processWebhook } = await import('../../adaptive/webhook-processor.js');
+    processWebhook(payload).catch((err) => {
+      logger.error({ err, payload }, 'webhook processing failed');
+    });
 
   } catch (error) {
     logger.error({ error }, 'Unexpected error processing webhook');
@@ -107,6 +106,37 @@ webhooksRouter.post('/plex', upload.single('thumb'), async (req, res) => {
 });
 
 /**
+ * RAW webhook debug endpoint - logs everything Plex sends
+ * Configure this as a second webhook in Plex to see unfiltered events
+ */
+webhooksRouter.post('/debug', upload.single('thumb'), (req, res) => {
+  try {
+    const payloadJson = req.body.payload;
+
+    if (payloadJson) {
+      const payload = JSON.parse(payloadJson);
+
+      // Log EVERYTHING with no filtering
+      logger.info(
+        {
+          event: payload.event,
+          Player: payload.Player,
+          Metadata: payload.Metadata,
+          Account: payload.Account,
+          Server: payload.Server
+        },
+        '🔍 RAW WEBHOOK DEBUG'
+      );
+    }
+
+    res.status(200).json({ status: 'logged' });
+  } catch (error) {
+    logger.error({ error }, 'debug webhook error');
+    res.status(200).json({ status: 'error-but-ok' });
+  }
+});
+
+/**
  * Webhook configuration test endpoint (optional)
  * Returns information about received webhook configuration
  */
@@ -115,6 +145,7 @@ webhooksRouter.get('/test', (req, res) => {
     message: 'Webhook receiver is running',
     endpoints: {
       main: 'POST /webhooks/plex',
+      debug: 'POST /webhooks/debug (raw logger)',
       health: 'GET /webhooks/health',
       test: 'GET /webhooks/test'
     },
@@ -125,6 +156,7 @@ webhooksRouter.get('/test', (req, res) => {
     },
     plexConfiguration: {
       url: `${req.protocol}://${req.get('host')}/webhooks/plex`,
+      debugUrl: `${req.protocol}://${req.get('host')}/webhooks/debug`,
       note: 'Configure this URL in Plex Settings > Webhooks'
     }
   });

@@ -261,7 +261,7 @@ export async function generateCustomPlaylist(
     }
 
     // Step 4: Select tracks (with constraints)
-    const selectionResult = selectPlaylistTracks(candidates, {
+    const selectionResult = await selectPlaylistTracks(candidates, {
       targetCount: targetSize,
       maxPerArtist: 2,
       window: windowName

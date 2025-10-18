@@ -2,7 +2,7 @@ import type { Track } from '@ctrl/plex';
 
 import type { AggregatedHistory } from '../history/aggregate.js';
 import { calculateScore } from '../scoring/strategies.js';
-import type { ScoringStrategy } from '../scoring/types.js';
+import type { ScoringStrategy, ScoringContext } from '../scoring/types.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
 import { getEnrichedAlbumGenres, getEnrichedAlbumMoods } from '../genre-enrichment.js';
 import { getDb } from '../db/index.js';
@@ -10,6 +10,9 @@ import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { filterMetaGenres, DEFAULT_GENRE_IGNORE_LIST } from '../metadata/genre-service.js';
 import { getEffectiveConfig } from '../db/settings-service.js';
+import { getPatternsWithCache, analyzeUserPatterns } from '../patterns/index.js';
+import type { HourlyGenrePreference } from '../patterns/types.js';
+import { logger } from '../logger.js';
 
 export interface CandidateTrack {
   ratingKey: string;
@@ -25,6 +28,7 @@ export interface CandidateTrack {
   playCount: number;
   lastPlayedAt: Date | null;
   finalScore: number;
+  scoringComponents?: import('../scoring/types.js').ScoringComponents; // Full scoring breakdown for detailed tooltips
 }
 
 /**
@@ -132,7 +136,8 @@ const getAllMoods = async (track: Track): Promise<string[]> => {
 const buildCandidate = async (
   track: Track,
   history: { playCount: number; lastPlayedAt: Date | null },
-  scoringMode: ScoringMode = 'standard'
+  scoringMode: ScoringMode = 'standard',
+  learnedPatterns?: HourlyGenrePreference[]
 ): Promise<CandidateTrack> => {
   const genre = await getGenre(track);
   const genres = await getAllGenres(track);
@@ -141,12 +146,18 @@ const buildCandidate = async (
   // Map legacy mode names to new strategy names
   const strategy: ScoringStrategy = scoringMode === 'quality-first' ? 'quality' : 'balanced';
 
-  // Calculate score using centralized strategy
-  const scoringResult = calculateScore(strategy, {
+  // Build scoring context with learned patterns
+  const scoringContext: ScoringContext = {
     userRating: track.userRating,
     playCount: track.viewCount ?? history.playCount,
-    lastPlayedAt: history.lastPlayedAt
-  });
+    lastPlayedAt: history.lastPlayedAt,
+    genres,
+    moods,
+    learnedPatterns,
+  };
+
+  // Calculate score using centralized strategy
+  const scoringResult = await calculateScore(strategy, scoringContext);
 
   return {
     ratingKey: track.ratingKey?.toString() ?? '',
@@ -161,7 +172,8 @@ const buildCandidate = async (
     fallbackScore: scoringResult.components.fallbackScore,
     playCount: history.playCount,
     lastPlayedAt: history.lastPlayedAt,
-    finalScore: scoringResult.finalScore
+    finalScore: scoringResult.finalScore,
+    scoringComponents: scoringResult.components // Store full breakdown for detailed tooltips
   };
 };
 
@@ -182,6 +194,25 @@ export const buildCandidateTracks = async (
     return [];
   }
 
+  // Load learned patterns from cache (with automatic refresh if stale)
+  let learnedPatterns: HourlyGenrePreference[] | undefined;
+  try {
+    const patterns = await getPatternsWithCache(false, analyzeUserPatterns);
+    if (patterns && patterns.hourlyGenrePreferences.length > 0) {
+      learnedPatterns = patterns.hourlyGenrePreferences;
+      logger.debug(
+        {
+          preferencesCount: learnedPatterns.length,
+          sessionsAnalyzed: patterns.sessionsAnalyzed,
+          lastAnalyzed: patterns.lastAnalyzed.toISOString(),
+        },
+        'loaded learned patterns for scoring'
+      );
+    }
+  } catch (error) {
+    logger.warn({ error }, 'failed to load learned patterns, scoring will use defaults');
+  }
+
   const { scoringMode = 'standard' } = options;
   const ratingKeys = history.map(h => h.ratingKey);
   const tracksMap = await fetchTracksByRatingKeys(ratingKeys);
@@ -197,7 +228,7 @@ export const buildCandidateTracks = async (
     const candidate = await buildCandidate(track, {
       playCount: item.playCount,
       lastPlayedAt: item.lastPlayedAt
-    }, scoringMode);
+    }, scoringMode, learnedPatterns);
 
     // Apply genre filter if specified (legacy single-genre filter)
     if (options.genreFilter) {
@@ -262,7 +293,20 @@ export const candidateFromTrack = async (
   track: Track,
   history: { playCount: number; lastPlayedAt: Date | null },
   scoringMode: ScoringMode = 'standard'
-): Promise<CandidateTrack> => buildCandidate(track, history, scoringMode);
+): Promise<CandidateTrack> => {
+  // Load patterns for individual track scoring (used by sonic expander, etc.)
+  let learnedPatterns: HourlyGenrePreference[] | undefined;
+  try {
+    const patterns = await getPatternsWithCache(false, analyzeUserPatterns);
+    if (patterns) {
+      learnedPatterns = patterns.hourlyGenrePreferences;
+    }
+  } catch {
+    // Silently fail - patterns are optional enhancement
+  }
+
+  return buildCandidate(track, history, scoringMode, learnedPatterns);
+};
 
 /**
  * Update last_used_at timestamp for cache entries (async, non-blocking)

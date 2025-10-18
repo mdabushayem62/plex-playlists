@@ -4,6 +4,7 @@
  */
 
 import Html from '@kitajs/html';
+import { NavSidebar } from './components/nav-sidebar.tsx';
 
 export interface LayoutProps {
   title?: string;
@@ -28,451 +29,47 @@ export function Layout({ title, page, setupComplete, children }: LayoutProps): J
             href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
           />
 
+          {/* Custom desktop-first styles */}
+          <link rel="stylesheet" href="/css/styles.css" />
+
           {/* HTMX for interactivity */}
           <script src="https://unpkg.com/htmx.org@2.0.0"></script>
 
+          {/* Chart.js for analytics (loaded globally for HTMX compatibility) */}
+          <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
           <style>{`
-            /* *arr-Style High Density Design - Optimized for 1080p homelab displays */
-            :root {
-              --spacing-compact: 0.25rem;   /* 4px - keep for very tight elements */
-              --spacing-normal: 0.375rem;   /* 6px - tighter (was 8px) */
-              --spacing-section: 0.5rem;    /* 8px - tighter (was 12px) */
-              --spacing-large: 0.75rem;     /* 12px - tighter (was 16px) */
-            }
-
-            /* Muted color overrides for dark theme */
-            [data-theme="dark"] {
-              --pico-primary: #4a8fc9;           /* Softer blue (was bright cyan) */
-              --pico-primary-hover: #5ba3d9;     /* Slightly brighter on hover */
-              --pico-primary-focus: rgba(74, 143, 201, 0.25);  /* Subtle focus ring */
-              --pico-primary-inverse: #ffffff;   /* White text on primary */
-
-              /* Soften link colors */
-              --pico-color: #c5d1e0;             /* Softer text color */
-              --pico-h1-color: #e8eef5;          /* Slightly brighter for headings */
-              --pico-h2-color: #e8eef5;
-              --pico-h3-color: #e8eef5;
-            }
-
-            /* Override PicoCSS defaults for maximum density */
-            * {
-              --pico-spacing: 0.375rem;
-              --pico-typography-spacing-vertical: 0.5rem;
-            }
-
-            /* Custom styles */
-            .status-badge {
-              display: inline-block;
-              padding: 0.125rem 0.375rem;
-              border-radius: 0.25rem;
-              font-size: 0.75rem;
-              font-weight: 500;
-              line-height: 1.4;
-            }
-            .status-success {
-              background-color: var(--pico-ins-color);
-              color: var(--pico-background-color);
-            }
-            .status-failed {
-              background-color: var(--pico-del-color);
-              color: var(--pico-background-color);
-            }
-            .status-running {
-              background-color: var(--pico-primary);
-              color: var(--pico-primary-inverse);
-            }
-            .playlist-emoji {
-              font-size: 1.25rem;
-              margin-right: 0.25rem;
-            }
-
-            /* High-density stat cards - Tautulli style */
-            .stat-card {
-              background: var(--pico-card-background-color);
-              padding: 0.375rem 0.5rem;  /* Tighter vertical padding */
-              border-radius: 0.25rem;
-              margin-bottom: 0.375rem;   /* Tighter spacing between cards */
-            }
-            .stat-card h3 {
-              margin: 0 0 0.125rem 0;
-              font-size: 1.25rem;
-              line-height: 1.1;          /* Tighter line height */
-              font-weight: 600;
-            }
-            .stat-card p {
-              margin: 0;
-              color: var(--pico-muted-color);
-              font-size: 0.75rem;
-              line-height: 1.2;          /* Tighter line height */
-            }
-            .stat-card small {
-              font-size: 0.7rem;
-              line-height: 1.1;
-            }
-
-            /* Compact header */
-            header {
-              padding: 0.375rem 0;       /* Tighter padding */
-              border-bottom: 1px solid var(--pico-muted-border-color);
-              margin-bottom: 0.5rem;     /* Tighter margin */
-            }
-            header h1 {
-              margin: 0;
-              font-size: 1.125rem;       /* Slightly smaller */
-              line-height: 1.3;
-              font-weight: 600;
-            }
-
-            /* Compact navigation */
-            nav.main-nav {
-              margin-top: 0.375rem;      /* Tighter spacing */
-            }
-            nav.main-nav ul {
-              display: flex;
-              gap: 0.375rem;             /* Tighter gap between items */
-              list-style: none;
-              padding: 0;
-              margin: 0;
-            }
-            nav.main-nav a {
-              font-size: 0.8125rem;
-              text-decoration: none;
-              padding: 0.25rem 0.5rem;
-              border-bottom: 2px solid transparent;
-              transition: all 0.2s ease;
-            }
-            nav.main-nav a:hover {
-              background: var(--pico-card-background-color);
-              border-radius: 0.25rem;
-              border-bottom-color: transparent;
-            }
-            nav.main-nav a.active {
-              font-weight: 600;
-              background: var(--pico-card-background-color);
-              border-radius: 0.25rem;
-              border-bottom: 2px solid var(--pico-primary);
-            }
-
-            /* Compact sections - Tautulli density */
-            section {
-              margin-top: 0.75rem !important;      /* Reduced from 1rem */
-              margin-bottom: 0.75rem !important;
-            }
-
-            /* Compact articles/cards - Tautulli density */
-            article {
-              margin-bottom: 0.5rem !important;    /* Reduced from 0.75rem */
-              padding: 0.5rem 0.625rem;            /* Tighter vertical, keep horizontal readable */
-            }
-
-            /* High-density tables - Tautulli style */
-            table {
-              margin-top: 0.375rem;        /* Tighter margins */
-              margin-bottom: 0.375rem;
-              font-size: 0.8125rem;        /* Slightly smaller */
-            }
-            table th,
-            table td {
-              padding: 0.3125rem 0.5rem;   /* Even tighter vertical padding (5px) */
-              line-height: 1.3;            /* Tighter line height */
-            }
-            table th {
-              font-size: 0.75rem;          /* Smaller headers */
-              font-weight: 600;
-              text-transform: uppercase;
-              letter-spacing: 0.025em;
-            }
-
-            /* Compact forms */
-            form label {
-              margin-bottom: 0.375rem;     /* Tighter */
-              font-size: 0.875rem;
-            }
-            input, select, textarea {
-              margin-bottom: 0.375rem;     /* Tighter */
-              padding: 0.3125rem 0.5rem;   /* Tighter vertical padding */
-              font-size: 0.875rem;
-            }
-
-            /* Compact headings - Tautulli density */
-            h2 {
-              margin: 0 0 0.375rem 0;      /* Tighter margin */
-              line-height: 1.2;            /* Tighter line height */
-              font-size: 1.375rem;         /* Slightly smaller */
-              font-weight: 600;
-            }
-            h3 {
-              margin: 0 0 0.3125rem 0;     /* Tighter margin */
-              font-size: 1.0625rem;        /* Slightly smaller */
-              line-height: 1.2;            /* Tighter line height */
-              font-weight: 600;
-            }
-            h4 {
-              margin: 0 0 0.25rem 0;
-              font-size: 0.875rem;         /* Slightly smaller */
-              line-height: 1.2;            /* Tighter line height */
-              font-weight: 600;
-            }
-
-            /* Compact buttons */
-            button, [role="button"] {
-              padding: 0.3125rem 0.625rem; /* Tighter padding */
-              font-size: 0.8125rem;
-              margin: 0.1875rem 0;         /* Tighter margin */
-              transition: all 0.15s ease;
-            }
-            button:hover, [role="button"]:hover {
-              transform: translateY(-1px);
-              filter: brightness(1.1);
-            }
-            button:active, [role="button"]:active {
-              transform: translateY(0);
-            }
-            button.action-btn, .action-btn {
-              padding: 0.1875rem 0.4375rem; /* Tighter padding */
-              font-size: 0.75rem;
-            }
-
-            /* Compact paragraphs */
-            p {
-              margin-bottom: 0.375rem;     /* Tighter spacing */
-              line-height: 1.4;            /* Tighter line height */
-            }
-            p:last-child {
-              margin-bottom: 0;
-            }
-
-            /* Collapsible sections for dense settings pages */
-            details {
-              margin-bottom: 0.5rem;       /* Tighter spacing */
-              border: 1px solid var(--pico-muted-border-color);
-              border-radius: 0.25rem;
-              padding: 0;
-            }
-            details summary {
-              padding: 0.375rem 0.625rem;  /* Tighter padding */
-              cursor: pointer;
-              font-weight: 600;
-              font-size: 0.875rem;         /* Slightly smaller */
-              user-select: none;
-              background: var(--pico-card-background-color);
-              border-radius: 0.25rem;
-            }
-            details summary:hover {
-              background: var(--pico-background-color);
-            }
-            details[open] summary {
-              border-bottom: 1px solid var(--pico-muted-border-color);
-              border-radius: 0.25rem 0.25rem 0 0;
-              margin-bottom: 0.375rem;     /* Tighter spacing */
-            }
-            details > *:not(summary) {
-              padding: 0 0.625rem 0.5rem 0.625rem; /* Tighter padding */
-            }
-
-            /* Grid utilities for dense layouts - Tautulli style */
-            .grid-dense {
-              display: grid;
-              gap: 0.375rem;               /* Tighter gap */
-            }
-            .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); }
-            .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); }
-            .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
-            .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); }
-            .grid-8 { display: grid; grid-template-columns: repeat(8, 1fr); }
-            .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.375rem; } /* Fit more cards */
-            .grid-auto-wide { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.375rem; } /* Original size */
-
-            /* Flex utilities */
-            .flex-between {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-            }
-            .flex-start {
-              display: flex;
-              align-items: flex-start;
-              gap: var(--spacing-compact);
-            }
-            .flex-gap { gap: var(--spacing-normal); }
-            .flex-gap-sm { gap: var(--spacing-compact); }
-
-            /* Spacing utilities */
-            .mb-section { margin-bottom: var(--spacing-section); }
-            .mb-normal { margin-bottom: var(--spacing-normal); }
-            .mt-section { margin-top: var(--spacing-section); }
-            .pt-section { padding-top: var(--spacing-section); }
-            .border-top { border-top: 1px solid var(--pico-muted-border-color); }
-
-            /* Card/Section utilities */
-            .card-section {
-              background: var(--pico-card-background-color);
-              padding: 0.625rem;           /* Slightly tighter than default article */
-              border-radius: 0.25rem;
-              margin-bottom: var(--spacing-section);
-            }
-            .row-item {
-              padding: 0.375rem 0.5rem;
-              background: var(--pico-background-color);
-              border-radius: 0.25rem;
-            }
-
-            /* Text utilities */
-            .text-muted { color: var(--pico-muted-color); }
-            .text-sm { font-size: 0.8125rem; }
-            .text-xs { font-size: 0.75rem; }
-
-            /* Chart/visualization containers */
-            .chart-container {
-              min-height: 400px;
-              position: relative;
-            }
-            .chart-container canvas {
-              max-height: 500px;
-            }
-
-            /* Toast notifications */
-            #toast-container {
-              position: fixed;
-              top: 1rem;
-              right: 1rem;
-              z-index: 9999;
-              display: flex;
-              flex-direction: column;
-              gap: 0.5rem;
-              max-width: 400px;
-            }
-            .toast {
-              padding: 1rem;
-              border-radius: 0.5rem;
-              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-              opacity: 0;
-              transform: translateX(100%);
-              transition: all 0.3s ease-in-out;
-              display: flex;
-              align-items: center;
-              gap: 0.5rem;
-            }
-            .toast.show {
-              opacity: 1;
-              transform: translateX(0);
-            }
-            .toast-success {
-              background: var(--pico-ins-color);
-              color: var(--pico-background-color);
-            }
-            .toast-error {
-              background: var(--pico-del-color);
-              color: var(--pico-background-color);
-            }
-            .toast-info {
-              background: var(--pico-primary);
-              color: var(--pico-primary-inverse);
-            }
-            .toast-warning {
-              background: #ff9800;
-              color: var(--pico-background-color);
-            }
-
-            /* Responsive tables - horizontal scroll on mobile */
-            table {
-              display: block;
-              overflow-x: auto;
-              white-space: nowrap;
-            }
-            @media (min-width: 768px) {
-              table {
-                display: table;
-                overflow-x: visible;
-                white-space: normal;
-              }
-            }
-
-            /* Mobile navigation - hamburger for smaller screens */
-            @media (max-width: 767px) {
-              nav.main-nav ul {
-                flex-wrap: wrap;
-              }
-              nav.main-nav a {
-                font-size: 0.8rem;
-              }
-              .stat-card {
-                min-width: 150px;
-              }
-            }
+            /* Page-specific overrides only - all global styles moved to /css/styles.css */
           `}</style>
         </head>
         <body>
           {/* Toast container */}
           <div id="toast-container"></div>
 
-          <header class="container">
-            <h1>🎵 Plex Playlist Enhancer</h1>
-            <nav class="main-nav">
-              <ul>
-                <li>
-                  <a href="/" class={page === 'dashboard' ? 'active' : ''}>
-                    Dashboard
-                  </a>
-                </li>
-                <li>
-                  <a href="/playlists" class={page === 'playlists' ? 'active' : ''}>
-                    Playlists
-                  </a>
-                </li>
-                <li>
-                  <a href="/actions" class={page === 'actions' ? 'active' : ''}>
-                    Actions
-                  </a>
-                </li>
-                <li>
-                  <a href="/analytics" class={page === 'analytics' ? 'active' : ''}>
-                    Nerd Lines
-                  </a>
-                </li>
-                <li>
-                  <a href="/config" class={page === 'config' ? 'active' : ''}>
-                    Configuration
-                  </a>
-                </li>
-                {!setupComplete && (
-                  <li>
-                    <a
-                      href="/setup"
-                      class={page === 'setup' ? 'active' : ''}
-                      style="color: var(--pico-primary);"
-                    >
-                      ⚙️ Setup
-                    </a>
-                  </li>
-                )}
-                <li>
-                  <a
-                    href="https://github.com/aceofaces/plex-playlists#readme"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Documentation & Help"
-                  >
-                    📖 Help
-                  </a>
-                </li>
-              </ul>
-            </nav>
-          </header>
+          {/* Global loading indicator for HTMX requests */}
+          <div id="global-loading-indicator" class="htmx-indicator" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background: var(--pico-card-background-color); padding: 2rem 3rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); text-align: center;">
+            <div class="loading" style="margin: 0 auto 1rem auto;"></div>
+            <p style="margin: 0; color: var(--pico-muted-color);">Loading...</p>
+          </div>
 
-          <main class="container">{children}</main>
+          {/* Sidebar navigation */}
+          <NavSidebar page={page || 'dashboard'} setupComplete={setupComplete} />
 
-          <footer
-            class="container"
-            style="margin-top: var(--spacing-large); padding: var(--spacing-section) 0; border-top: 1px solid var(--pico-muted-border-color); color: var(--pico-muted-color);"
-          >
-            <p style="margin: 0;">
-              <small>
-                Plex Playlist Enhancer •{' '}
-                <a href="https://github.com/aceofaces/plex-playlists">GitHub</a>
-              </small>
-            </p>
-          </footer>
+          {/* Main content wrapper */}
+          <div id="main-wrapper">
+            <main id="main" class="container">
+              {children}
+            </main>
+
+            <footer class="container mt-5 py-3 border-top text-muted">
+              <p class="m-0">
+                <small>
+                  Plex Playlist Enhancer •{' '}
+                  <a href="https://github.com/aceofaces/plex-playlists">GitHub</a>
+                </small>
+              </p>
+            </footer>
+          </div>
 
           <script>{`
             // Toast notification system

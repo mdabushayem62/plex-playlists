@@ -1,5 +1,6 @@
 import { differenceInDays, subDays } from 'date-fns';
-import type { HistoryResult } from '@ctrl/plex';
+import type { HistoryResult, MusicSection, Section } from '@ctrl/plex';
+import { Track } from '@ctrl/plex';
 
 import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
@@ -10,6 +11,7 @@ import type { CandidateTrack } from './candidate-builder.js';
 import { getDb } from '../db/index.js';
 import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { createMediaQuery } from '../plex/media-query-builder.js';
 
 export interface DiscoveryTrack extends CandidateTrack {
   lastPlayedAt: Date | null;
@@ -18,34 +20,206 @@ export interface DiscoveryTrack extends CandidateTrack {
   playCount: number;
 }
 
+const isMusicSection = (section: Section): section is MusicSection =>
+  (section as MusicSection).searchTracks !== undefined && section.CONTENT_TYPE === 'audio';
+
+const findMusicSection = async () => {
+  const server = await getPlexServer();
+  const library = await server.library();
+  const sections = await library.sections();
+  const musicSection = sections.find(isMusicSection);
+  if (!musicSection) {
+    throw new Error('no music library section found for discovery');
+  }
+  return musicSection;
+};
+
 /**
- * Fetch tracks for weekly discovery playlist
- * Focuses on rediscovering forgotten gems from listening history
+ * Fetch tracks for weekly discovery playlist using Media Query DSL optimization
+ * Focuses on rediscovering forgotten gems with server-side filtering
  *
  * Strategy:
- * - Uses history API to find all tracks you've played before
+ * - DSL mode (default): Query library directly with pre-filtering
+ * - Legacy mode: Uses history API aggregation
  * - Filters to tracks last played > minDaysSincePlay ago
  * - Score: starRating × (1 - playCount/saturation) × recencyPenalty
  * - Prioritize: High-rated, low-played, long-forgotten tracks
  *
- * Performance: Uses history API with pagination (no full library scan)
+ * Performance: DSL mode reduces data processing by ~90%
  *
  * @param targetSize - Target playlist size (default: 50)
  * @param minDaysSincePlay - Minimum days since last play (default: 90)
- * @param maxHistoryEntries - Maximum history entries to fetch (default: 20000)
+ * @param maxHistoryEntries - Maximum history entries for legacy mode (default: 20000)
+ * @param useDSL - Use DSL optimization (default: true)
  * @returns Array of discovery tracks sorted by discovery score
  */
 export const fetchDiscoveryTracks = async (
   targetSize: number = APP_ENV.PLAYLIST_TARGET_SIZE,
   minDaysSincePlay: number = APP_ENV.DISCOVERY_DAYS,
-  maxHistoryEntries: number = 20000
+  maxHistoryEntries: number = 20000,
+  useDSL: boolean = true
+): Promise<DiscoveryTrack[]> => {
+  if (useDSL) {
+    return fetchDiscoveryTracksWithDSL(targetSize, minDaysSincePlay);
+  }
+  return fetchDiscoveryTracksLegacy(targetSize, minDaysSincePlay, maxHistoryEntries);
+};
+
+/**
+ * DSL-optimized discovery track fetching
+ * Pre-filters server-side using Media Query DSL
+ */
+const fetchDiscoveryTracksWithDSL = async (
+  targetSize: number,
+  minDaysSincePlay: number
+): Promise<DiscoveryTrack[]> => {
+  const server = await getPlexServer();
+  const musicSection = await findMusicSection();
+  const sectionId = musicSection.key;
+  const now = new Date();
+
+  logger.info(
+    { targetSize, minDaysSincePlay, method: 'DSL' },
+    'fetching tracks for weekly discovery playlist with DSL'
+  );
+
+  // Build DSL query:
+  // - Pre-filter to rated tracks (4+ stars = 8+ out of 10)
+  // - Tracks NOT played in last minDaysSincePlay (<<= operator for "before")
+  // - Sort by rating descending to get best forgotten tracks first
+  const searchLimit = targetSize * 10; // Larger multiplier for candidate pool
+
+  const query = createMediaQuery(sectionId)
+    .type('track')
+    .rating(4)                                    // Pre-filter to rated tracks
+    .lastPlayed(`${minDaysSincePlay}d`, '<<=')   // NOT played recently (before N days ago)
+    .sort('userRating', 'desc')
+    .limit(searchLimit)
+    .build();
+
+  logger.debug({ query, searchLimit }, 'DSL discovery query built');
+
+  interface TrackMediaContainer {
+    MediaContainer?: {
+      Metadata?: Array<Record<string, unknown>>;
+    };
+  }
+
+  const result = await server.query<TrackMediaContainer>(query);
+  const metadata = result?.MediaContainer?.Metadata || [];
+
+  logger.debug(
+    { fetched: metadata.length, searchLimit },
+    'DSL query returned tracks'
+  );
+
+  // Convert metadata to Track objects and score
+  const candidates: DiscoveryTrack[] = [];
+
+  for (const item of metadata) {
+    const track = new Track(server, item, query, undefined);
+
+    // Extract play statistics
+    const playCount = track.viewCount ?? 0;
+    const lastPlayedAt = track.lastViewedAt ?? null;
+    const daysSincePlay = lastPlayedAt ? differenceInDays(now, lastPlayedAt) : null;
+
+    // Skip tracks with no rating and very few plays (unknown quality)
+    const userRating = track.userRating ?? 0;
+    if (userRating === 0 && playCount < 3) {
+      continue;
+    }
+
+    // Use centralized discovery scoring
+    const scoringResult = await calculateScore('discovery', {
+      userRating,
+      playCount,
+      lastPlayedAt,
+      daysSincePlay: daysSincePlay ?? undefined,
+      now
+    });
+
+    const discoveryScore = scoringResult.finalScore;
+
+    // Skip very low-scoring tracks
+    if (discoveryScore < 0.1) {
+      continue;
+    }
+
+    // Extract genre from track
+    const genres = track.genres;
+    const genre = (genres && Array.isArray(genres) && genres.length > 0)
+      ? genres[0].tag
+      : undefined;
+
+    candidates.push({
+      ratingKey: track.ratingKey?.toString() || '',
+      title: track.title || 'Unknown Title',
+      artist: track.grandparentTitle || 'Unknown Artist',
+      album: track.parentTitle || 'Unknown Album',
+      genre,
+      track,
+      finalScore: discoveryScore,
+      recencyWeight: scoringResult.components.metadata?.recencyPenalty ?? 0,
+      fallbackScore: scoringResult.components.metadata?.qualityScore ?? 0,
+      lastPlayedAt,
+      daysSincePlay,
+      discoveryScore,
+      playCount
+    });
+  }
+
+  // Sort by discovery score descending
+  candidates.sort((a, b) => b.discoveryScore - a.discoveryScore);
+
+  logger.info(
+    {
+      method: 'DSL',
+      fetched: metadata.length,
+      candidates: candidates.length,
+      targetSize,
+      avgScore: candidates.length > 0
+        ? (candidates.reduce((sum, t) => sum + t.discoveryScore, 0) / candidates.length).toFixed(3)
+        : 0,
+      avgDaysSincePlay: candidates.length > 0
+        ? Math.floor(candidates.reduce((sum, t) => sum + (t.daysSincePlay || 0), 0) / candidates.length)
+        : 0,
+      forgotten: candidates.filter(t => t.daysSincePlay && t.daysSincePlay > minDaysSincePlay).length
+    },
+    'discovery tracks fetched and scored with DSL optimization'
+  );
+
+  // Fail if insufficient candidates
+  if (candidates.length === 0) {
+    const errorMessage = `Insufficient tracks for discovery playlist using DSL. Try reducing DISCOVERY_DAYS env var to ${Math.floor(minDaysSincePlay / 2)} days, or set useDSL=false to use legacy history aggregation.`;
+    logger.error({ minDaysSincePlay, errorMessage }, 'discovery playlist generation failed');
+    throw new Error(errorMessage);
+  }
+
+  // Track cache usage for artists in discovery playlist
+  if (candidates.length > 0) {
+    const uniqueArtists = [...new Set(candidates.map(t => t.artist))];
+    updateCacheUsage(uniqueArtists).catch(() => { /* silently fail */ });
+  }
+
+  return candidates;
+};
+
+/**
+ * Legacy discovery implementation using history API aggregation
+ * Kept for backward compatibility and comparison
+ */
+const fetchDiscoveryTracksLegacy = async (
+  targetSize: number,
+  minDaysSincePlay: number,
+  maxHistoryEntries: number
 ): Promise<DiscoveryTrack[]> => {
   const server = await getPlexServer();
   const now = new Date();
 
   logger.info(
-    { targetSize, minDaysSincePlay, maxHistoryEntries },
-    'fetching tracks for weekly discovery playlist'
+    { targetSize, minDaysSincePlay, maxHistoryEntries, method: 'legacy' },
+    'fetching tracks for weekly discovery playlist with legacy method'
   );
 
   // Fetch extensive history to find all tracks we've played
@@ -168,7 +342,7 @@ export const fetchDiscoveryTracks = async (
       }
 
       // Use centralized discovery scoring
-      const scoringResult = calculateScore('discovery', {
+      const scoringResult = await calculateScore('discovery', {
         userRating: trackData.rating * 2, // Convert 0-5 to 0-10 for scoring
         playCount: trackData.playCount,
         lastPlayedAt: trackData.lastPlayedAt,
@@ -238,6 +412,7 @@ export const fetchDiscoveryTracks = async (
 
     logger.info(
       {
+        method: 'legacy',
         totalHistoryEntries: allHistory.length,
         uniqueTracks: trackMap.size,
         recentlyPlayed,
@@ -252,7 +427,7 @@ export const fetchDiscoveryTracks = async (
           : 0,
         forgotten: candidates.filter(t => t.daysSincePlay && t.daysSincePlay > minDaysSincePlay).length
       },
-      'discovery tracks fetched and scored'
+      'discovery tracks fetched and scored with legacy method'
     );
 
     // Fail if insufficient candidates

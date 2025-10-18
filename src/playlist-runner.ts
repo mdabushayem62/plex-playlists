@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 
 import { APP_ENV } from './config.js';
-import { recordJobCompletion, recordJobStart, fetchExistingTrackRatingKeys, getPlaylistMetadata, savePlaylist } from './db/repository.js';
+import { recordJobCompletion, recordJobStart, updateJobProgress, fetchExistingTrackRatingKeys, fetchRecentlyRecommendedForWindow, getPlaylistMetadata, savePlaylist } from './db/repository.js';
 import { aggregateHistory } from './history/aggregate.js';
 import { fetchHistoryForWindow } from './history/history-service.js';
 import { logger } from './logger.js';
@@ -54,6 +54,11 @@ export class DailyPlaylistRunner implements PlaylistRunner {
         { window, targetSize, maxPerArtist, fallbackLimit, genreFilter },
         'starting playlist run'
       );
+
+      // Progress: Step 1 - Fetching history
+      if (jobId) {
+        await updateJobProgress(jobId, 1, 6, 'Fetching listening history');
+      }
 
       let candidates: CandidateTrack[];
       let historyCandidates: number;
@@ -112,6 +117,11 @@ export class DailyPlaylistRunner implements PlaylistRunner {
         historyCandidates = candidates.length;
       }
 
+      // Progress: Step 2 - Building candidates complete
+      if (jobId) {
+        await updateJobProgress(jobId, 2, 6, `Built ${candidates.length} candidate tracks`);
+      }
+
       // For genre playlists with no listening history, use a different strategy:
       // 1. Get high-quality tracks from entire library (no genre filter)
       // 2. Use sonic similarity to find similar tracks
@@ -132,27 +142,31 @@ export class DailyPlaylistRunner implements PlaylistRunner {
         'candidate pool ready'
       );
 
+      // Progress: Step 3 - Selecting tracks
+      if (jobId) {
+        await updateJobProgress(jobId, 3, 6, 'Selecting tracks');
+      }
+
       // Fetch cross-playlist exclusions (tracks from other playlists in last N days)
       const crossPlaylistKeys = await fetchExistingTrackRatingKeys(window);
 
-      // Optionally fetch same-window exclusions (tracks from this playlist in last N days)
-      // This prevents repetition within the same playlist type
-      // const sameWindowKeys = await fetchRecentlyRecommendedForWindow(window);
-      // const excludeKeys = new Set([...crossPlaylistKeys, ...sameWindowKeys]);
-
-      // For now, just use cross-playlist exclusions
-      const excludeKeys = crossPlaylistKeys;
+      // Fetch same-window exclusions (tracks from this playlist in last N days)
+      // This prevents day-to-day repetition within the same playlist type
+      const sameWindowKeys = await fetchRecentlyRecommendedForWindow(window);
+      const excludeKeys = new Set([...crossPlaylistKeys, ...sameWindowKeys]);
 
       logger.debug(
         {
           window,
           crossPlaylistExclusions: crossPlaylistKeys.size,
+          sameWindowExclusions: sameWindowKeys.size,
+          totalExclusions: excludeKeys.size,
           exclusionDays: APP_ENV.EXCLUSION_DAYS
         },
-        'applying time-based cross-playlist deduplication'
+        'applying time-based deduplication (cross-playlist + same-window)'
       );
 
-      let { selected } = selectPlaylistTracks(candidates, {
+      let { selected } = await selectPlaylistTracks(candidates, {
         targetCount: targetSize,
         maxPerArtist,
         excludeRatingKeys: excludeKeys,
@@ -182,7 +196,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
           sonicExpansionUsed = true;
           logger.info({ window, sonicCandidates: sonicCandidates.length }, 'sonic candidates fetched');
           candidates = mergeCandidates(candidates, sonicCandidates);
-          ({ selected } = selectPlaylistTracks(candidates, {
+          ({ selected } = await selectPlaylistTracks(candidates, {
             targetCount: targetSize,
             maxPerArtist,
             excludeRatingKeys: excludeKeys,
@@ -196,6 +210,11 @@ export class DailyPlaylistRunner implements PlaylistRunner {
           { window, selected: selected.length, target: targetSize },
           'playlist under target size after selection constraints'
         );
+      }
+
+      // Progress: Step 4 - Creating Plex playlist
+      if (jobId) {
+        await updateJobProgress(jobId, 4, 6, `Creating playlist with ${selected.length} tracks`);
       }
 
       const playlistMetadata = await getPlaylistMetadata(window);
@@ -268,6 +287,11 @@ export class DailyPlaylistRunner implements PlaylistRunner {
       }
       // Note: Summary is already set during createAudioPlaylist(), no need for redundant update
 
+      // Progress: Step 5 - Saving metadata
+      if (jobId) {
+        await updateJobProgress(jobId, 5, 6, 'Saving playlist metadata');
+      }
+
       await savePlaylist({
         window,
         title,
@@ -277,7 +301,9 @@ export class DailyPlaylistRunner implements PlaylistRunner {
         tracks: selected.map((item, index) => ({ ...item, position: index }))
       });
 
+      // Progress: Step 6 - Complete
       if (jobId) {
+        await updateJobProgress(jobId, 6, 6, 'Complete');
         await recordJobCompletion(jobId, 'success');
       }
 
@@ -291,7 +317,7 @@ export class DailyPlaylistRunner implements PlaylistRunner {
           totalCandidates: candidates.length,
           initialSelection,
           sonicExpansionUsed,
-          crossPlaylistExclusions: excludeKeys.size,
+          totalExclusions: excludeKeys.size,
           exclusionDays: APP_ENV.EXCLUSION_DAYS
         },
         'playlist run complete'

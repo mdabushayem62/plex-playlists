@@ -4,13 +4,12 @@
  */
 
 import { Router } from 'express';
-import { getViewPath } from '../server.js';
 import { getDb } from '../../db/index.js';
-import { artistCache, albumCache, jobRuns, setupState, playlists } from '../../db/schema.js';
+import { artistCache, albumCache, jobRuns, setupState } from '../../db/schema.js';
 import { TIME_WINDOWS, SPECIAL_WINDOWS, type PlaylistWindow } from '../../windows.js';
-import { desc, lt, eq, and, gte, lte } from 'drizzle-orm';
+import { lt, eq, and, desc, sql } from 'drizzle-orm';
 import { importRatingsFromCSVs } from '../../import/importer-fast.js';
-import { clearAllCache, getCacheStats } from '../../cache/cache-cli.js';
+import { clearAllCache } from '../../cache/cache-cli.js';
 import { progressTracker, formatETA } from '../../utils/progress-tracker.js';
 import { jobQueue } from '../../queue/job-queue.js';
 import { sanitizeFilePath, isValidDirectory, escapeHtml } from '../../utils/security.js';
@@ -32,74 +31,11 @@ async function isValidWindow(window: string): Promise<boolean> {
 }
 
 /**
- * Main actions page
+ * Main actions page - DEPRECATED (functionality moved to Dashboard and Config)
+ * Redirects to dashboard for backwards compatibility
  */
 actionsRouter.get('/', async (req, res) => {
-  try {
-    const db = getDb();
-
-    // Get available windows
-    const timeWindows = TIME_WINDOWS;
-
-    // Get active jobs from database (status = 'running')
-    const activeJobs = await db
-      .select()
-      .from(jobRuns)
-      .where(eq(jobRuns.status, 'running'))
-      .orderBy(desc(jobRuns.startedAt))
-      .limit(10);
-
-    // Get recent job runs (all statuses)
-    const recentJobs = await db
-      .select()
-      .from(jobRuns)
-      .orderBy(desc(jobRuns.startedAt))
-      .limit(10);
-
-    // Get cache stats (both artist and album)
-    const stats = await getCacheStats();
-    const cacheStats = {
-      artists: {
-        total: stats.artists.totalEntries,
-        bySource: stats.artists.bySource,
-        expired: stats.artists.expired
-      },
-      albums: {
-        total: stats.albums.totalEntries,
-        bySource: stats.albums.bySource,
-        expired: stats.albums.expired
-      }
-    };
-
-    // Check setup status for navigation
-    const setupStates = await db.select().from(setupState).limit(1);
-    const setupComplete = setupStates.length > 0 && setupStates[0].completed;
-
-    // Render TSX component
-    const { ActionsPage } = await import(getViewPath('actions/index.tsx'));
-    const html = ActionsPage({
-      timeWindows,
-      genreWindows: [], // Genre playlists deprecated - custom playlists managed via /playlists
-      recentJobs,
-      cacheStats,
-      activeJobs: activeJobs.map(job => ({
-        id: job.id.toString(),
-        type: job.window.includes('cache') ? 'cache' : 'playlist',
-        status: job.status as 'running' | 'success' | 'failed',
-        started: job.startedAt,
-        finished: job.finishedAt || undefined,
-        error: job.error || undefined
-      })),
-      page: 'actions',
-      setupComplete
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error) {
-    console.error('Actions page error:', error);
-    res.status(500).send('Internal server error');
-  }
+  res.redirect('/');
 });
 
 /**
@@ -211,9 +147,22 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
     res.write(`data: ${JSON.stringify(initialStatus)}\n\n`);
 
     // Subscribe to progress events
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const progressHandler = (update: any) => {
-      if (update.jobId === jobId) {
+    interface ProgressUpdate {
+      jobId: string;
+      current: number;
+      total: number;
+      percent: number;
+      message: string;
+      eta?: number;
+      sourceCounts?: Record<string, number>;
+    }
+
+    const progressHandler = (update: unknown) => {
+      // Type guard for progress update
+      if (typeof update !== 'object' || update === null) return;
+      const progressUpdate = update as ProgressUpdate;
+
+      if (progressUpdate.jobId === jobId.toString()) {
         try {
           // Send full job object (same format as initial status) so client's onmessage receives it
           const data = {
@@ -222,12 +171,12 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
             status: 'running',
             started: job.startedAt,
             progress: {
-              current: update.current,
-              total: update.total,
-              percent: update.percent,
-              message: update.message,
-              eta: update.eta ? formatETA(update.eta) : null,
-              sourceCounts: update.sourceCounts
+              current: progressUpdate.current,
+              total: progressUpdate.total,
+              percent: progressUpdate.percent,
+              message: progressUpdate.message,
+              eta: progressUpdate.eta ? formatETA(progressUpdate.eta) : null,
+              sourceCounts: progressUpdate.sourceCounts
             }
           };
           // Don't specify event type so it triggers onmessage on client
@@ -309,67 +258,11 @@ actionsRouter.get('/jobs/:jobId/stream', async (req, res) => {
 });
 
 /**
- * Cache statistics page
+ * Cache statistics page - DEPRECATED (functionality moved to Config > Cache tab)
+ * Redirects to config page for backwards compatibility
  */
 actionsRouter.get('/cache', async (req, res) => {
-  try {
-    const db = getDb();
-
-    // Get comprehensive cache stats from cache service
-    const stats = await getCacheStats();
-
-    // Get raw entries for display in UI
-    const artistCacheEntries = await db.select().from(artistCache);
-    const albumCacheEntries = await db.select().from(albumCache);
-
-    // Get AudioMuse stats (may fail if not configured)
-    let audioMuseStats: Record<string, unknown> | null = null;
-    try {
-      const { APP_ENV } = await import('../../config.js');
-      if (APP_ENV.AUDIOMUSE_DB_HOST && APP_ENV.AUDIOMUSE_DB_USER) {
-        const statsResponse = await fetch('http://localhost:' + APP_ENV.WEB_UI_PORT + '/actions/audiomuse/stats');
-        if (statsResponse.ok) {
-          audioMuseStats = await statsResponse.json() as Record<string, unknown>;
-        }
-      } else {
-        audioMuseStats = {
-          configured: false,
-          message: 'AudioMuse not configured. Add credentials to .env file.'
-        };
-      }
-    } catch {
-      // AudioMuse not configured or not accessible - that's okay
-      audioMuseStats = {
-        configured: false,
-        message: 'AudioMuse not configured'
-      };
-    }
-
-    // Check setup status for navigation
-    const setupStates = await db.select().from(setupState).limit(1);
-    const setupComplete = setupStates.length > 0 && setupStates[0].completed;
-
-    // Render TSX component
-    const { CachePage } = await import(getViewPath('actions/cache.tsx'));
-    const html = CachePage({
-      stats,
-      artistEntries: artistCacheEntries
-        .sort((a, b) => new Date(b.cachedAt).getTime() - new Date(a.cachedAt).getTime())
-        .slice(0, 50), // Show latest 50
-      albumEntries: albumCacheEntries
-        .sort((a, b) => new Date(b.cachedAt).getTime() - new Date(a.cachedAt).getTime())
-        .slice(0, 50), // Show latest 50
-      audioMuseStats,
-      setupComplete,
-      page: 'actions'
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error) {
-    console.error('Cache page error:', error);
-    res.status(500).send('Internal server error');
-  }
+  res.redirect('/config?tab=cache');
 });
 
 /**
@@ -440,6 +333,42 @@ actionsRouter.post('/cache/warm-albums', async (req, res) => {
     res.json({ jobId, message: 'Album cache warming started' });
   } catch (error) {
     console.error('Album cache warm error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Sync rated tracks to cache (quick sync for analytics)
+ */
+actionsRouter.post('/cache/sync-rated', async (req, res) => {
+  try {
+    // Enqueue the job (returns immediately with job ID)
+    const jobId = await jobQueue.enqueue({
+      type: 'cache-sync-rated',
+      batchSize: 50
+    });
+
+    res.json({ jobId, message: 'Rated tracks sync started' });
+  } catch (error) {
+    console.error('Rated tracks sync error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Sync full track library to cache (background job with progress tracking)
+ */
+actionsRouter.post('/cache/sync-full', async (req, res) => {
+  try {
+    // Enqueue the job (returns immediately with job ID)
+    const jobId = await jobQueue.enqueue({
+      type: 'cache-sync-full',
+      batchSize: 50
+    });
+
+    res.json({ jobId, message: 'Full track library sync started' });
+  } catch (error) {
+    console.error('Full track sync error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -520,69 +449,66 @@ actionsRouter.post('/import/run', async (req, res) => {
 });
 
 /**
- * Job history page with filtering
+ * Job history page
+ * Complete history of all playlist generation and maintenance jobs
  */
 actionsRouter.get('/history', async (req, res) => {
   try {
     const db = getDb();
 
-    // Parse query parameters for filtering
-    const filterWindow = req.query.window as string | undefined;
-    const filterStatus = req.query.status as string | undefined;
-    const filterDateFrom = req.query.dateFrom as string | undefined;
-    const filterDateTo = req.query.dateTo as string | undefined;
+    // Get setup status
+    const setupStates = await db.select().from(setupState).limit(1);
+    const setupComplete = setupStates.length > 0 && setupStates[0].completed;
+
+    // Parse query params for filtering
+    const filters = {
+      window: req.query.window as string | undefined,
+      status: req.query.status as string | undefined,
+      dateFrom: req.query.dateFrom as string | undefined,
+      dateTo: req.query.dateTo as string | undefined
+    };
+
+    // Pagination
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = 50;
     const offset = (page - 1) * pageSize;
 
-    // Build query with filters
-    const whereConditions = [];
-
-    if (filterWindow) {
-      whereConditions.push(eq(jobRuns.window, filterWindow));
+    // Build query conditions
+    const conditions = [];
+    if (filters.window) {
+      conditions.push(eq(jobRuns.window, filters.window));
     }
-
-    if (filterStatus) {
-      whereConditions.push(eq(jobRuns.status, filterStatus));
+    if (filters.status) {
+      conditions.push(eq(jobRuns.status, filters.status));
     }
-
-    if (filterDateFrom) {
-      const fromDate = new Date(filterDateFrom);
-      whereConditions.push(gte(jobRuns.startedAt, fromDate));
+    if (filters.dateFrom) {
+      const fromDate = new Date(filters.dateFrom);
+      conditions.push(sql`${jobRuns.startedAt} >= ${fromDate.getTime()}`);
     }
-
-    if (filterDateTo) {
-      const toDate = new Date(filterDateTo);
+    if (filters.dateTo) {
+      const toDate = new Date(filters.dateTo);
       toDate.setHours(23, 59, 59, 999); // End of day
-      whereConditions.push(lte(jobRuns.startedAt, toDate));
+      conditions.push(sql`${jobRuns.startedAt} <= ${toDate.getTime()}`);
     }
 
-    // Get filtered jobs
-    const query = db
+    // Get filtered jobs with pagination
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const jobs = await db
       .select()
       .from(jobRuns)
+      .where(whereClause)
       .orderBy(desc(jobRuns.startedAt))
-      .limit(pageSize + 1) // Fetch one extra to check if there are more pages
+      .limit(pageSize + 1) // Get one extra to check if there's a next page
       .offset(offset);
-
-    const jobs = whereConditions.length > 0
-      ? await query.where(and(...whereConditions))
-      : await query;
 
     // Check if there are more pages
     const hasNextPage = jobs.length > pageSize;
-    const displayJobs = jobs.slice(0, pageSize);
-
-    // Get all playlists for linking
-    const allPlaylists = await db.select().from(playlists);
-    const playlistsByWindow = new Map(allPlaylists.map(p => [p.window, p]));
-
-    // Get unique windows and statuses for filter dropdowns
-    const allJobs = await db.select().from(jobRuns);
-    const uniqueWindows = [...new Set(allJobs.map(j => j.window))].sort();
-    const uniqueStatuses = [...new Set(allJobs.map(j => j.status))];
+    if (hasNextPage) {
+      jobs.pop(); // Remove the extra record
+    }
 
     // Get stats
+    const allJobs = await db.select().from(jobRuns).where(whereClause);
     const stats = {
       total: allJobs.length,
       success: allJobs.filter(j => j.status === 'success').length,
@@ -590,22 +516,23 @@ actionsRouter.get('/history', async (req, res) => {
       running: allJobs.filter(j => j.status === 'running').length
     };
 
-    // Check setup status for navigation
-    const setupStates = await db.select().from(setupState).limit(1);
-    const setupComplete = setupStates.length > 0 && setupStates[0].completed;
+    // Get unique values for filters
+    const allJobsForFilters = await db.select().from(jobRuns);
+    const uniqueWindows = Array.from(new Set(allJobsForFilters.map(j => j.window))).sort();
+    const uniqueStatuses = Array.from(new Set(allJobsForFilters.map(j => j.status))).sort();
 
-    // Render TSX component
-    const { HistoryPage } = await import(getViewPath('actions/history.tsx'));
-    const html = HistoryPage({
-      jobs: displayJobs,
+    // Get playlists for linking
+    const { playlists } = await import('../../db/schema.js');
+    const allPlaylists = await db.select().from(playlists);
+    const playlistsByWindow = new Map(
+      allPlaylists.map(p => [p.window, p])
+    );
+
+    const data = {
+      jobs,
       playlistsByWindow,
       stats,
-      filters: {
-        window: filterWindow,
-        status: filterStatus,
-        dateFrom: filterDateFrom,
-        dateTo: filterDateTo
-      },
+      filters,
       uniqueWindows,
       uniqueStatuses,
       pagination: {
@@ -614,19 +541,41 @@ actionsRouter.get('/history', async (req, res) => {
         hasNextPage,
         hasPrevPage: page > 1
       },
-      setupComplete,
-      page: 'actions',
       breadcrumbs: [
         { label: 'Dashboard', url: '/' },
-        { label: 'Actions', url: '/actions' },
         { label: 'Job History', url: null }
       ]
-    });
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    const { isHtmxRequest, withOobSidebar } = await import('../middleware/htmx.js');
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { HistoryContent } = await import('../views/actions/history.js');
+      const content = await HistoryContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'history',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { HistoryPage } = await import('../views/actions/history.js');
+      const html = HistoryPage({
+        ...data,
+        setupComplete,
+        page: 'history'
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
-    console.error('Job history error:', error);
+    console.error('Job history page error:', error);
     res.status(500).send('Internal server error');
   }
 });

@@ -29,6 +29,10 @@ export const createApp = (): App => {
       // Initialize config and data directories
       await initializeDirectories();
 
+      // NOTE: PlayQueue IDs persist as long as Plex server is running
+      // They survive OUR server restarts, so we don't clear them on startup
+      // Invalid queue IDs will be handled gracefully and trigger rediscovery
+
       // Build cron schedule with time-based and dynamic genre playlists
       const cronExpressions: Record<string, string> = {};
 

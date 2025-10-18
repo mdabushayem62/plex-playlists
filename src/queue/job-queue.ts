@@ -6,6 +6,7 @@
 import PQueue from 'p-queue';
 import { createPlaylistRunner } from '../playlist-runner.js';
 import { warmCache, warmAlbumCache } from '../cache/cache-cli.js';
+import { syncRatedTracks, syncLibrary } from '../cache/track-cache-service.js';
 import { recordJobStart, recordJobCompletion } from '../db/repository.js';
 import { progressTracker } from '../utils/progress-tracker.js';
 import { logger } from '../logger.js';
@@ -16,6 +17,8 @@ export type JobType =
   | { type: 'playlist'; window: PlaylistWindow }
   | { type: 'cache-warm'; concurrency?: number }
   | { type: 'cache-albums'; concurrency?: number }
+  | { type: 'cache-sync-rated'; batchSize?: number }
+  | { type: 'cache-sync-full'; batchSize?: number }
   | { type: 'custom-playlists' };
 
 interface ActiveJob {
@@ -119,6 +122,26 @@ export class JobQueue {
         break;
       }
 
+      case 'cache-sync-rated': {
+        await syncRatedTracks({
+          batchSize: job.batchSize ?? 50,
+          jobId,
+          signal,
+          progressTracker
+        });
+        break;
+      }
+
+      case 'cache-sync-full': {
+        await syncLibrary({
+          batchSize: job.batchSize ?? 50,
+          jobId,
+          signal,
+          progressTracker
+        });
+        break;
+      }
+
       default:
         throw new Error(`Unknown job type: ${(job as JobType).type}`);
     }
@@ -168,6 +191,10 @@ export class JobQueue {
         return 'cache-warm';
       case 'cache-albums':
         return 'album-cache-warm';
+      case 'cache-sync-rated':
+        return 'cache-sync-rated';
+      case 'cache-sync-full':
+        return 'cache-sync-full';
       case 'custom-playlists':
         return 'custom-playlists';
       default:

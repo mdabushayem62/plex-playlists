@@ -263,19 +263,43 @@ export async function buildArtistConstellation(
     });
   }
 
-  // Fetch genres for each artist
+  // Fetch genres for all artists in a single batched query (instead of N queries)
   const artistGenreMap = new Map<string, Set<string>>();
-  for (const artist of topArtists) {
-    const artistGenres = await db
-      .select({ genres: artistCache.genres })
-      .from(artistCache)
-      .where(sql`lower(${artistCache.artistName}) = lower(${artist.artist})`)
-      .limit(1);
 
-    if (artistGenres.length > 0 && artistGenres[0].genres) {
+  if (topArtists.length === 0) {
+    return { nodes: artistNodes, links: artistLinks };
+  }
+
+  // Build OR conditions for case-insensitive matching
+  const artistConditions = topArtists.map(a =>
+    sql`lower(${artistCache.artistName}) = ${a.artist.toLowerCase()}`
+  );
+
+  const whereClause = artistConditions.length === 1
+    ? artistConditions[0]
+    : sql`(${sql.join(artistConditions, sql` OR `)})`;
+
+  const artistGenreResults = await db
+    .select({
+      artistName: artistCache.artistName,
+      genres: artistCache.genres
+    })
+    .from(artistCache)
+    .where(whereClause);
+
+  // Map results back to artist names (case-insensitive)
+  const artistLookup = new Map(
+    topArtists.map(a => [a.artist.toLowerCase(), a.artist])
+  );
+
+  for (const result of artistGenreResults) {
+    if (result.genres) {
       try {
-        const genres = JSON.parse(artistGenres[0].genres) as string[];
-        artistGenreMap.set(artist.artist, new Set(genres));
+        const genres = JSON.parse(result.genres) as string[];
+        const originalArtistName = artistLookup.get(result.artistName.toLowerCase());
+        if (originalArtistName) {
+          artistGenreMap.set(originalArtistName, new Set(genres));
+        }
       } catch {
         // Skip if genre parsing fails
       }

@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: ['src/test-*.ts', 'src/TEST-*.md']
   },
   {
+    files: ['**/*.ts', '**/*.tsx'],
     extends: [
       ...tseslint.configs.recommended,
       eslintConfigPrettier
@@ -22,6 +23,14 @@ export default tseslint.config(
       }
     },
     rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_'
+        }
+      ],
       'import/no-unresolved': 'error'
     },
     languageOptions: {

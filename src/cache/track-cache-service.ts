@@ -565,6 +565,11 @@ export const syncLibrary = async (options: SyncLibraryOptions = {}): Promise<voi
   logger.info({ batchSize, maxTracks }, 'starting full library sync');
 
   try {
+    // Start progress tracking if provided
+    if (progressTracker && jobId) {
+      progressTracker.startTracking(jobId, maxTracks || 100000, 'Syncing full library');
+    }
+
     const { tracks, totalFetched, cancelled } = await scanLibrary({
       batchSize,
       maxTracks,
@@ -591,6 +596,9 @@ export const syncLibrary = async (options: SyncLibraryOptions = {}): Promise<voi
 
     if (cancelled) {
       logger.warn({ totalFetched }, 'library sync cancelled');
+      if (progressTracker && jobId) {
+        await progressTracker.stopTracking(jobId);
+      }
       return;
     }
 
@@ -598,8 +606,97 @@ export const syncLibrary = async (options: SyncLibraryOptions = {}): Promise<voi
       { totalFetched, tracksCached: tracks.length },
       'full library sync completed'
     );
+
+    // Stop progress tracking
+    if (progressTracker && jobId) {
+      await progressTracker.stopTracking(jobId);
+    }
   } catch (error) {
     logger.error({ error }, 'library sync failed');
+    // Stop progress tracking on error
+    if (progressTracker && jobId) {
+      await progressTracker.stopTracking(jobId);
+    }
+    throw error;
+  }
+};
+
+/**
+ * Quick rated tracks sync - populate only tracks with user ratings
+ * Optimized for fast Hidden Gems analytics chart population
+ *
+ * Performance: ~2-5 minutes for typical rated track count (vs 30-45min full sync)
+ */
+export const syncRatedTracks = async (options: SyncLibraryOptions = {}): Promise<void> => {
+  const { batchSize = 50, maxTracks, signal, jobId, progressTracker } = options;
+
+  logger.info({ batchSize, maxTracks }, 'starting rated tracks sync');
+
+  try {
+    // Start progress tracking if provided
+    if (progressTracker && jobId) {
+      progressTracker.startTracking(jobId, maxTracks || 10000, 'Syncing rated tracks');
+    }
+
+    // Build query for tracks with ratings (userRating >= 1)
+    const sectionId = await (await import('../plex/library-scanner.js')).getMusicLibrarySectionId();
+    if (!sectionId) {
+      throw new Error('No music library section found');
+    }
+
+    const { createMediaQuery } = await import('../plex/media-query-builder.js');
+    const queryBuilder = createMediaQuery(sectionId)
+      .type('track')
+      .rating(1, '>=');  // Server-side filter: only rated tracks
+
+    const { tracks, totalFetched, cancelled } = await scanLibrary({
+      batchSize,
+      maxTracks,
+      signal,
+      queryBuilder,  // Use Media Query DSL for server-side filtering
+      onProgress: async (current, total, batch) => {
+        // Upsert batch to cache
+        await batchUpsertTracks(batch);
+
+        // Update progress tracker if provided
+        if (progressTracker && jobId) {
+          await progressTracker.update(jobId, {
+            current,
+            total,
+            message: `Synced ${current}/${total} rated tracks`
+          });
+        }
+
+        // Call user callback
+        if (options.onProgress) {
+          await options.onProgress(current, total);
+        }
+      }
+    });
+
+    if (cancelled) {
+      logger.warn({ totalFetched }, 'rated tracks sync cancelled');
+      if (progressTracker && jobId) {
+        await progressTracker.stopTracking(jobId);
+      }
+      return;
+    }
+
+    logger.info(
+      { totalFetched, tracksCached: tracks.length },
+      'rated tracks sync completed'
+    );
+
+    // Stop progress tracking
+    if (progressTracker && jobId) {
+      await progressTracker.stopTracking(jobId);
+    }
+  } catch (error) {
+    logger.error({ error }, 'rated tracks sync failed');
+    // Stop progress tracking on error
+    if (progressTracker && jobId) {
+      await progressTracker.stopTracking(jobId);
+    }
     throw error;
   }
 };

@@ -37,13 +37,16 @@ describe('Database Migrations Integration', () => {
       'artist_cache',
       'audio_features',
       'custom_playlists',
+      'genre_similarity',
       'job_runs',
+      'listening_history_cache',
       'playlist_tracks',
       'playlists',
       'settings',
       'settings_history',
       'setup_state',
-      'track_cache'
+      'track_cache',
+      'user_patterns'
     ]);
   });
 

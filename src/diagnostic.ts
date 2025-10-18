@@ -25,7 +25,10 @@ if (existsSync(configEnvPath)) {
   dotenvConfig({ path: configEnvPath, override: true });
 }
 
-async function diagnosePlaylist(window: string) {
+/**
+ * Run diagnostic for a playlist window
+ */
+export async function runDiagnostic(window: string) {
   console.log(`\n=== Diagnostic Report for "${window}" ===\n`);
 
   try {
@@ -96,7 +99,7 @@ async function diagnosePlaylist(window: string) {
 
     // 6. Run selection
     console.log(`🎯 Running selection (target: ${targetSize})...`);
-    const { selected } = selectPlaylistTracks(historyCandidates, {
+    const { selected } = await selectPlaylistTracks(historyCandidates, {
       targetCount: targetSize,
       maxPerArtist: APP_ENV.MAX_PER_ARTIST,
       excludeRatingKeys: existingKeys,
@@ -135,15 +138,17 @@ async function diagnosePlaylist(window: string) {
   }
 }
 
-// Parse arguments
-const window = process.argv[2];
-if (!window) {
-  console.error('Usage: npm run dev src/diagnostic.ts <window>');
-  console.error('Example: npm run dev src/diagnostic.ts heavy-metal');
-  process.exit(1);
-}
+// Only run directly if executed as a script (not imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const window = process.argv[2];
+  if (!window) {
+    console.error('Usage: npm run dev src/diagnostic.ts <window>');
+    console.error('Example: npm run dev src/diagnostic.ts heavy-metal');
+    process.exit(1);
+  }
 
-diagnosePlaylist(window).catch(error => {
-  console.error('Diagnostic failed:', error);
-  process.exit(1);
-});
+  runDiagnostic(window).catch(error => {
+    console.error('Diagnostic failed:', error);
+    process.exit(1);
+  });
+}

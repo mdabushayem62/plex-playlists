@@ -59,7 +59,7 @@ describe('fetchDiscoveryTracks', () => {
     const track = createMockTrack({ ratingKey: '1', title: 'Old Song', artistName: 'Artist A', userRating: 8 });
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results).toHaveLength(1);
     expect(results[0].ratingKey).toBe('1');
@@ -72,7 +72,7 @@ describe('fetchDiscoveryTracks', () => {
     vi.mocked(getPlexServer).mockResolvedValue(server as any);
 
     // Should throw error when all tracks are filtered out
-    await expect(fetchDiscoveryTracks(50, 90, 20000)).rejects.toThrow(
+    await expect(fetchDiscoveryTracks(50, 90, 20000, false)).rejects.toThrow(
       /Insufficient tracks for discovery playlist/
     );
   });
@@ -85,7 +85,7 @@ describe('fetchDiscoveryTracks', () => {
     const track = createMockTrack({ ratingKey: '1', userRating: 8 });
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results).toHaveLength(1);
     expect(results[0].playCount).toBe(3);
@@ -97,7 +97,7 @@ describe('fetchDiscoveryTracks', () => {
     vi.mocked(getPlexServer).mockResolvedValue(server as any);
 
     // Should throw error when all tracks are filtered out
-    await expect(fetchDiscoveryTracks(50, 90, 20000)).rejects.toThrow(
+    await expect(fetchDiscoveryTracks(50, 90, 20000, false)).rejects.toThrow(
       /No listening history found for discovery playlist/
     );
   });
@@ -110,7 +110,7 @@ describe('fetchDiscoveryTracks', () => {
     const track = createMockTrack({ ratingKey: '1', title: 'Popular Unrated', viewCount: 3 });
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results).toHaveLength(1);
     expect(results[0].playCount).toBe(3);
@@ -127,7 +127,7 @@ describe('fetchDiscoveryTracks', () => {
     } as any);
 
     // Should throw error when all tracks are filtered out
-    await expect(fetchDiscoveryTracks(50, 90, 20000)).rejects.toThrow(
+    await expect(fetchDiscoveryTracks(50, 90, 20000, false)).rejects.toThrow(
       /No listening history found for discovery playlist/
     );
   });
@@ -150,7 +150,7 @@ describe('fetchDiscoveryTracks', () => {
       .mockReturnValueOnce({ finalScore: 0.3, components: { metadata: { recencyPenalty: 0.3, qualityScore: 0.3 } } } as any)
       .mockReturnValueOnce({ finalScore: 0.8, components: { metadata: { recencyPenalty: 0.8, qualityScore: 0.8 } } } as any);
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results[0].ratingKey).toBe('2'); // Higher score first
     expect(results[0].discoveryScore).toBeGreaterThan(results[1].discoveryScore);
@@ -173,7 +173,7 @@ describe('fetchDiscoveryTracks', () => {
     );
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap(tracks));
 
-    await fetchDiscoveryTracks(50, 90, 20000);
+    await fetchDiscoveryTracks(50, 90, 20000, false);
 
     // Should call twice: page1 (500), page2 (100)
     // Stops after page2 since 100 < 500 (pageSize)
@@ -197,7 +197,7 @@ describe('fetchDiscoveryTracks', () => {
     );
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap(tracks));
 
-    await fetchDiscoveryTracks(50, 90, 1000); // maxHistoryEntries = 1000
+    await fetchDiscoveryTracks(50, 90, 1000, false); // maxHistoryEntries = 1000
 
     expect(server.history).toHaveBeenCalledTimes(2); // Should stop after 1000 entries
   });
@@ -206,7 +206,7 @@ describe('fetchDiscoveryTracks', () => {
     const server = mockPlexServer().withEmptyHistory().build();
     vi.mocked(getPlexServer).mockResolvedValue(server as any);
 
-    await expect(fetchDiscoveryTracks(50, 90, 20000)).rejects.toThrow(
+    await expect(fetchDiscoveryTracks(50, 90, 20000, false)).rejects.toThrow(
       'No listening history found for discovery playlist'
     );
   });
@@ -216,7 +216,7 @@ describe('fetchDiscoveryTracks', () => {
     const server = mockPlexServer().withHistory(history).build();
     vi.mocked(getPlexServer).mockResolvedValue(server as any);
 
-    await expect(fetchDiscoveryTracks(50, 90, 20000)).rejects.toThrow(
+    await expect(fetchDiscoveryTracks(50, 90, 20000, false)).rejects.toThrow(
       /Insufficient tracks for discovery playlist/
     );
   });
@@ -232,7 +232,7 @@ describe('fetchDiscoveryTracks', () => {
     const track = createMockTrack({ ratingKey: '2', userRating: 8 });
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results).toHaveLength(1);
     expect(results[0].ratingKey).toBe('2');
@@ -250,7 +250,7 @@ describe('fetchDiscoveryTracks', () => {
     const track = createMockTrack({ ratingKey: '1', userRating: 8 });
     vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
 
-    const results = await fetchDiscoveryTracks(50, 90, 20000);
+    const results = await fetchDiscoveryTracks(50, 90, 20000, false);
 
     expect(results).toHaveLength(1);
     expect(results[0].ratingKey).toBe('1');

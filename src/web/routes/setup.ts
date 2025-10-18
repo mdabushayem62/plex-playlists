@@ -299,7 +299,7 @@ setupRouter.get('/library-analysis', async (req, res) => {
     // Get current cache stats from cache service
     const stats = await getCacheStats();
     const cacheStats = {
-      total: stats.artists.totalEntries,
+      total: stats.artists.total,
       bySource: stats.artists.bySource
     };
 
@@ -421,7 +421,7 @@ setupRouter.get('/playlists', async (req, res) => {
       state,
       topGenres,
       totalGenres: genreSummaryMap.size,
-      totalArtists: cacheStats.artists.totalEntries,
+      totalArtists: cacheStats.artists.total,
       dailyPlaylistsCron: effectiveConfig.dailyPlaylistsCron
     });
 

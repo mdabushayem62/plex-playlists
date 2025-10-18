@@ -65,6 +65,16 @@ Complete reference for all environment variables.
 **Throwback Window:**
 The throwback playlist analyzes tracks you played between `LOOKBACK_END` and `LOOKBACK_START` days ago, but excludes any tracks you've played in the last `RECENT_EXCLUSION` days to maintain freshness.
 
+**Adaptive Window Behavior:**
+If your library doesn't have enough history for the configured window, the system automatically adapts:
+- **Ideal (5+ years history)**: Uses configured 2-5 year window
+- **Good (3+ years history)**: Adapts to 1-3 year window
+- **Acceptable (2+ years history)**: Adapts to 6 months - 2 years
+- **Minimum (6+ months history)**: Adapts to 3-6 month window
+- **Insufficient (<3 months)**: Throwback playlist disabled
+
+This allows throwback playlists to work on newer libraries while still optimizing for nostalgic content on mature libraries.
+
 ---
 
 ## Playlist Generation

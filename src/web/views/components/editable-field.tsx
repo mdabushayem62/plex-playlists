@@ -7,7 +7,7 @@ import Html from '@kitajs/html';
 
 export interface FieldMetadata {
   value: string | number | boolean | string[];
-  type: 'text' | 'password' | 'number' | 'url' | 'json' | 'cron';
+  type: 'text' | 'password' | 'number' | 'url' | 'json' | 'cron' | 'boolean';
   source: 'env' | 'database' | 'default';
   description: string;
   category: string;

@@ -93,7 +93,10 @@ function buildFilterUrl(filters: Filters, page: number): string {
   return '?' + params.toString();
 }
 
-export function HistoryPage(props: HistoryPageProps): JSX.Element {
+/**
+ * History page content only (for HTMX partial rendering)
+ */
+export function HistoryContent(props: Omit<HistoryPageProps, 'page' | 'setupComplete'>) {
   const {
     jobs,
     playlistsByWindow,
@@ -102,14 +105,11 @@ export function HistoryPage(props: HistoryPageProps): JSX.Element {
     uniqueWindows,
     uniqueStatuses,
     pagination,
-    setupComplete,
-    page,
     breadcrumbs
   } = props;
 
   return (
-    <Layout title="Job History" page={page} setupComplete={setupComplete}>
-      <div>
+    <div>
         {/* Breadcrumbs */}
         {breadcrumbs && (
           <nav aria-label="breadcrumb" style="margin-bottom: 1rem;">
@@ -403,7 +403,19 @@ export function HistoryPage(props: HistoryPageProps): JSX.Element {
             }
           }
         `}</script>
-      </div>
+    </div>
+  );
+}
+
+/**
+ * Full history page with layout (for regular requests)
+ */
+export function HistoryPage(props: HistoryPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title="Job History" page={page} setupComplete={setupComplete}>
+      <HistoryContent {...contentProps} />
     </Layout>
   );
 }

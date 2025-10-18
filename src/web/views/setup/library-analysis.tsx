@@ -48,7 +48,7 @@ export interface LibraryAnalysisPageProps {
 }
 
 export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Element {
-  const { steps, currentStepIndex, cacheStats, topGenres, totalGenres, importResults, apiKeysConfigured } = props;
+  const { steps, currentStepIndex, topGenres, totalGenres, importResults, apiKeysConfigured } = props;
 
   return (
     <SetupLayout title="Library Analysis" steps={steps} currentStepIndex={currentStepIndex}>
@@ -138,12 +138,12 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
               {' '}<a href="https://github.com/aceofaces/plex-playlists/tree/main/docs/api-setup/spotify-setup.md" target="_blank">Spotify</a>
             </p>
 
-            <form id="apiKeysForm" hx-post="/config/environment/save-api-keys" hx-swap="innerHTML" hx-target="#api-save-response">
+            <div>
               <label>
                 Last.fm API Key
                 <input
                   type="text"
-                  name="lastfmApiKey"
+                  id="lastfmApiKey"
                   placeholder={apiKeysConfigured.lastfm ? '(currently set - leave blank to keep)' : 'Enter API key (optional)'}
                 />
                 <small>
@@ -157,7 +157,7 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
                 Spotify Client ID
                 <input
                   type="text"
-                  name="spotifyClientId"
+                  id="spotifyClientId"
                   placeholder={apiKeysConfigured.spotify ? '(currently set - leave blank to keep)' : 'Enter client ID (optional)'}
                 />
                 <small>
@@ -171,13 +171,13 @@ export function LibraryAnalysisPage(props: LibraryAnalysisPageProps): JSX.Elemen
                 Spotify Client Secret
                 <input
                   type="password"
-                  name="spotifyClientSecret"
+                  id="spotifyClientSecret"
                   placeholder={apiKeysConfigured.spotify ? '(currently set - leave blank to keep)' : 'Enter client secret (optional)'}
                 />
               </label>
 
-              <button type="submit" class="secondary">Save API Keys</button>
-            </form>
+              <button type="button" class="secondary" onclick="saveApiKeys()">Save API Keys</button>
+            </div>
 
             <div id="api-save-response" style="margin-top: 1rem;"></div>
           </div>
@@ -334,6 +334,53 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
     }
   }
 });
+
+// Save API keys function
+async function saveApiKeys() {
+  const responseDiv = document.getElementById('api-save-response');
+  const lastfmApiKey = document.getElementById('lastfmApiKey').value.trim();
+  const spotifyClientId = document.getElementById('spotifyClientId').value.trim();
+  const spotifyClientSecret = document.getElementById('spotifyClientSecret').value.trim();
+
+  // Build settings object (only include non-empty values)
+  const settings = {};
+  if (lastfmApiKey) settings.lastfm_api_key = lastfmApiKey;
+  if (spotifyClientId) settings.spotify_client_id = spotifyClientId;
+  if (spotifyClientSecret) settings.spotify_client_secret = spotifyClientSecret;
+
+  if (Object.keys(settings).length === 0) {
+    responseDiv.innerHTML = '<p style="color: var(--pico-muted-color); margin: 0;">No changes to save.</p>';
+    return;
+  }
+
+  responseDiv.innerHTML = '<p style="color: var(--pico-muted-color); margin: 0;">Saving...</p>';
+
+  try {
+    const response = await fetch('/config/api/settings/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      responseDiv.innerHTML = '<p style="color: var(--pico-ins-color); margin: 0;">✓ API keys saved successfully!</p>';
+
+      // Clear input fields
+      document.getElementById('lastfmApiKey').value = '';
+      document.getElementById('spotifyClientId').value = '';
+      document.getElementById('spotifyClientSecret').value = '';
+
+      // Reload page after 1.5s to update the "currently configured" status
+      setTimeout(() => window.location.reload(), 1500);
+    } else {
+      responseDiv.innerHTML = \`<p style="color: var(--pico-del-color); margin: 0;">✗ Error: \${data.error || 'Failed to save'}</p>\`;
+    }
+  } catch (error) {
+    responseDiv.innerHTML = '<p style="color: var(--pico-del-color); margin: 0;">✗ Network error</p>';
+  }
+}
       `}</script>
     </SetupLayout>
   );

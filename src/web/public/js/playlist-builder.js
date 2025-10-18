@@ -43,7 +43,8 @@ function toggleTag(element, type) {
   } else {
     // Check if we've reached the limit
     if (selectedSet.size >= MAX_SELECTIONS) {
-      showToast(`Maximum ${MAX_SELECTIONS} ${type}s allowed`, 'warning');
+      const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+      showToast(`Maximum ${MAX_SELECTIONS} ${typeCapitalized}s allowed`, 'warning');
       return;
     }
     // Select
@@ -156,8 +157,8 @@ async function togglePlaylist(id, enabled) {
 /**
  * Generate a playlist immediately
  */
-async function generatePlaylist(id) {
-  const btn = event.target;
+async function generatePlaylist(id, event) {
+  const btn = event.currentTarget;
   const originalText = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '⏳';
@@ -185,12 +186,34 @@ async function generatePlaylist(id) {
 }
 
 /**
- * Delete a playlist (with confirmation)
+ * Delete a playlist (with two-click confirmation)
  */
-async function deletePlaylist(id, name) {
-  if (!confirm(`Delete "${name}"? This cannot be undone.`)) {
+async function deletePlaylist(id, name, event) {
+  const btn = event.currentTarget;
+  const originalText = btn.innerHTML;
+
+  // First click: show confirmation
+  if (!btn.hasAttribute('data-confirming')) {
+    btn.innerHTML = '⚠️ Confirm?';
+    btn.style.background = 'var(--pico-del-color)';
+    btn.setAttribute('data-confirming', 'true');
+
+    // Reset after 3 seconds
+    setTimeout(() => {
+      if (btn.hasAttribute('data-confirming')) {
+        btn.innerHTML = originalText;
+        btn.style.background = '';
+        btn.removeAttribute('data-confirming');
+      }
+    }, 3000);
     return;
   }
+
+  // Second click: execute deletion
+  btn.disabled = true;
+  btn.innerHTML = '⏳';
+  btn.style.background = '';
+  btn.removeAttribute('data-confirming');
 
   try {
     const response = await fetch(`/playlists/builder/${id}`, {
@@ -198,13 +221,16 @@ async function deletePlaylist(id, name) {
     });
 
     if (response.ok) {
-      showToast('Playlist deleted', 'success');
-      setTimeout(() => window.location.reload(), 500);
+      btn.innerHTML = '✓';
+      showToast('Playlist deleted successfully! Reloading...', 'success');
+      setTimeout(() => window.location.reload(), 1000);
     } else {
       throw new Error('Failed to delete playlist');
     }
   } catch (error) {
-    showToast(error.message, 'error');
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    showToast(error.message || 'Failed to delete playlist', 'error');
   }
 }
 
@@ -255,8 +281,8 @@ async function loadRecommendations() {
       // Render recommendations
       content.innerHTML = `
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
-          ${recommendations.map(rec => `
-            <div class="recommendation-card">
+          ${recommendations.map((rec, index) => `
+            <div class="recommendation-card" data-rec-index="${index}">
               <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
                 <h4 style="margin: 0; flex: 1;">${rec.name}</h4>
                 <span class="category-badge category-${rec.category}">${rec.category}</span>
@@ -268,15 +294,21 @@ async function loadRecommendations() {
 
               ${rec.genres.length > 0 || rec.moods.length > 0 ? `
                 <div style="display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.75rem;">
-                  ${rec.genres.map(g => `<span style="padding: 0.25rem 0.5rem; background: var(--pico-primary); color: var(--pico-primary-inverse); border-radius: 0.25rem; font-size: 0.75rem;">🎵 ${g}</span>`).join('')}
-                  ${rec.moods.map(m => `<span style="padding: 0.25rem 0.5rem; background: var(--pico-ins-color); color: white; border-radius: 0.25rem; font-size: 0.75rem;">✨ ${m}</span>`).join('')}
+                  ${rec.genres.map(g => {
+                    const capitalized = g.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                    return `<span style="padding: 0.25rem 0.5rem; background: var(--pico-primary); color: var(--pico-primary-inverse); border-radius: 0.25rem; font-size: 0.75rem;">🎵 ${capitalized}</span>`;
+                  }).join('')}
+                  ${rec.moods.map(m => {
+                    const capitalized = m.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                    return `<span style="padding: 0.25rem 0.5rem; background: var(--pico-ins-color); color: white; border-radius: 0.25rem; font-size: 0.75rem;">✨ ${capitalized}</span>`;
+                  }).join('')}
                 </div>
               ` : ''}
 
               <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--pico-muted-border-color);">
                 <small style="color: var(--pico-muted-color);">${rec.reason}</small>
                 <button
-                  onclick='createFromRecommendation(${JSON.stringify(rec).replace(/'/g, "\\'").replace(/"/g, "&quot;")})'
+                  onclick='createFromRecommendation(${JSON.stringify(rec).replace(/'/g, "\\'").replace(/"/g, "&quot;")}, ${index})'
                   class="secondary"
                   style="font-size: 0.875rem; padding: 0.375rem 0.75rem; margin: 0; white-space: nowrap;"
                 >
@@ -303,7 +335,7 @@ async function loadRecommendations() {
 /**
  * Create a playlist from a recommendation
  */
-async function createFromRecommendation(recommendation) {
+async function createFromRecommendation(recommendation, index) {
   const data = {
     name: recommendation.name,
     genres: recommendation.genres,
@@ -323,8 +355,30 @@ async function createFromRecommendation(recommendation) {
     const result = await response.json();
 
     if (response.ok) {
-      showToast(`Created "${recommendation.name}" playlist!`, 'success');
-      setTimeout(() => window.location.reload(), 1000);
+      // Remove the recommendation card from the UI
+      const card = document.querySelector(`[data-rec-index="${index}"]`);
+      if (card) {
+        card.style.opacity = '0.5';
+        card.style.transition = 'opacity 0.3s';
+        setTimeout(() => {
+          card.remove();
+
+          // Check if there are any recommendations left
+          const remainingCards = document.querySelectorAll('.recommendation-card');
+          if (remainingCards.length === 0) {
+            const content = document.getElementById('recommendations-content');
+            content.innerHTML = `
+              <div class="playlist-builder-card">
+                <p style="color: var(--pico-muted-color); margin: 0;">
+                  ✓ All recommendations have been created! You can reload recommendations to see new suggestions.
+                </p>
+              </div>
+            `;
+          }
+        }, 300);
+      }
+
+      showToast(`Created "${recommendation.name}" and started generation!`, 'success');
     } else {
       throw new Error(result.error || 'Failed to create playlist');
     }

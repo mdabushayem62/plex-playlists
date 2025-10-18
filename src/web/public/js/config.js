@@ -157,6 +157,57 @@ async function resetSetupWizard() {
   }
 }
 
+/**
+ * URL hash support for tabs
+ * Update hash when tab switches, and load correct tab on page load
+ */
+function initializeTabHashSupport() {
+  // Update URL hash when tab is clicked
+  document.body.addEventListener('htmx:afterSettle', function(event) {
+    // Only handle tab content updates
+    if (event.detail.target.id === 'tab-content') {
+      const activeTab = document.querySelector('[role="tab"][aria-selected="true"]');
+      if (activeTab && activeTab.dataset.tabId) {
+        // Update URL hash without scrolling
+        history.replaceState(null, '', '#' + activeTab.dataset.tabId);
+      }
+    }
+  });
+
+  // Load correct tab based on URL hash on page load
+  window.addEventListener('DOMContentLoaded', function() {
+    const hash = window.location.hash.substring(1); // Remove # character
+
+    if (hash) {
+      // Find tab button with matching ID
+      const tabButton = document.querySelector(`[role="tab"][data-tab-id="${hash}"]`);
+
+      if (tabButton) {
+        // Trigger HTMX to load the tab
+        tabButton.click();
+      }
+    }
+  });
+
+  // Handle browser back/forward navigation
+  window.addEventListener('hashchange', function() {
+    const hash = window.location.hash.substring(1);
+
+    if (hash) {
+      const tabButton = document.querySelector(`[role="tab"][data-tab-id="${hash}"]`);
+
+      if (tabButton) {
+        tabButton.click();
+      }
+    }
+  });
+}
+
+// Initialize tab hash support if on settings page
+if (window.location.pathname === '/config/settings') {
+  initializeTabHashSupport();
+}
+
 // Expose functions globally
 window.testPlexConnection = testPlexConnection;
 window.testLastfm = testLastfm;

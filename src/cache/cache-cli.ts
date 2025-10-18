@@ -2,7 +2,7 @@ import type { MusicSection, Section } from '@ctrl/plex';
 import { getPlexServer } from '../plex/client.js';
 import { getGenreEnrichmentService } from '../genre-enrichment.js';
 import { getDb } from '../db/index.js';
-import { artistCache, albumCache } from '../db/schema.js';
+import { artistCache, albumCache, trackCache } from '../db/schema.js';
 import { logger } from '../logger.js';
 import { lt, and, or, sql } from 'drizzle-orm';
 import { recordJobStart, recordJobCompletion } from '../db/repository.js';
@@ -15,23 +15,36 @@ interface PlexTag {
   tag: string;
 }
 
+interface CacheStatsEntry {
+  total: number;  // Renamed from totalEntries to match UI component expectations
+  bySource: Record<string, number>;
+  oldestEntry: Date | null;
+  newestEntry: Date | null;
+  expiringWithin7Days: number;
+  expired: number;
+}
+
+interface TrackCacheStats {
+  total: number;
+  totalTracks: number; // Total tracks in library for coverage calculation
+  coverage: number; // Percentage of tracks cached
+  staticExpired: number;
+  staticExpiringWithin7Days: number;
+  statsExpired: number;
+  statsExpiringWithin7Days: number;
+  highRated: number;
+  unplayed: number;
+  unrated: number;
+  oldestStaticEntry: Date | null;
+  newestStaticEntry: Date | null;
+  oldestStatsEntry: Date | null;
+  newestStatsEntry: Date | null;
+}
+
 interface CacheStats {
-  artists: {
-    totalEntries: number;
-    bySource: Record<string, number>;
-    oldestEntry: Date | null;
-    newestEntry: Date | null;
-    expiringWithin7Days: number;
-    expired: number;
-  };
-  albums: {
-    totalEntries: number;
-    bySource: Record<string, number>;
-    oldestEntry: Date | null;
-    newestEntry: Date | null;
-    expiringWithin7Days: number;
-    expired: number;
-  };
+  artists: CacheStatsEntry;
+  albums: CacheStatsEntry;
+  tracks: TrackCacheStats;
 }
 
 const isMusicSection = (section: Section): section is MusicSection =>
@@ -49,22 +62,23 @@ const findMusicSection = async () => {
 };
 
 /**
- * Get cache statistics for both artist and album caches
+ * Get cache statistics for artist, album, and track caches
  */
 export async function getCacheStats(): Promise<CacheStats> {
   const db = getDb();
   const artistEntries = await db.select().from(artistCache);
   const albumEntries = await db.select().from(albumCache);
+  const trackEntries = await db.select().from(trackCache);
 
   const now = new Date();
   const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  const buildStats = (entries: Array<{ source: string; cachedAt: Date; expiresAt: Date | null }>) => {
-    const stats = {
-      totalEntries: entries.length,
+  const buildStats = (entries: Array<{ source: string; cachedAt: Date; expiresAt: Date | null }>): CacheStatsEntry => {
+    const stats: CacheStatsEntry = {
+      total: entries.length,
       bySource: {} as Record<string, number>,
-      oldestEntry: null as Date | null,
-      newestEntry: null as Date | null,
+      oldestEntry: null,
+      newestEntry: null,
       expiringWithin7Days: 0,
       expired: 0
     };
@@ -94,9 +108,90 @@ export async function getCacheStats(): Promise<CacheStats> {
     return stats;
   };
 
+  // Build track cache stats (different structure - two-tier TTL)
+  const trackStats: TrackCacheStats = {
+    total: trackEntries.length,
+    totalTracks: 0, // Will be populated from Plex library count (if needed)
+    coverage: 0, // Will calculate after getting total tracks
+    staticExpired: 0,
+    staticExpiringWithin7Days: 0,
+    statsExpired: 0,
+    statsExpiringWithin7Days: 0,
+    highRated: 0,
+    unplayed: 0,
+    unrated: 0,
+    oldestStaticEntry: null,
+    newestStaticEntry: null,
+    oldestStatsEntry: null,
+    newestStatsEntry: null
+  };
+
+  for (const entry of trackEntries) {
+    // Static expiration tracking
+    if (entry.staticExpiresAt) {
+      const staticExpires = new Date(entry.staticExpiresAt);
+      if (staticExpires < now) {
+        trackStats.staticExpired++;
+      } else if (staticExpires < sevenDaysFromNow) {
+        trackStats.staticExpiringWithin7Days++;
+      }
+    }
+
+    // Stats expiration tracking
+    if (entry.statsExpiresAt) {
+      const statsExpires = new Date(entry.statsExpiresAt);
+      if (statsExpires < now) {
+        trackStats.statsExpired++;
+      } else if (statsExpires < sevenDaysFromNow) {
+        trackStats.statsExpiringWithin7Days++;
+      }
+    }
+
+    // Quality indicators
+    if (entry.isHighRated) trackStats.highRated++;
+    if (entry.isUnplayed) trackStats.unplayed++;
+    if (entry.isUnrated) trackStats.unrated++;
+
+    // Track oldest/newest static entries
+    const staticCachedAt = new Date(entry.staticCachedAt);
+    if (!trackStats.oldestStaticEntry || staticCachedAt < trackStats.oldestStaticEntry) {
+      trackStats.oldestStaticEntry = staticCachedAt;
+    }
+    if (!trackStats.newestStaticEntry || staticCachedAt > trackStats.newestStaticEntry) {
+      trackStats.newestStaticEntry = staticCachedAt;
+    }
+
+    // Track oldest/newest stats entries
+    const statsCachedAt = new Date(entry.statsCachedAt);
+    if (!trackStats.oldestStatsEntry || statsCachedAt < trackStats.oldestStatsEntry) {
+      trackStats.oldestStatsEntry = statsCachedAt;
+    }
+    if (!trackStats.newestStatsEntry || statsCachedAt > trackStats.newestStatsEntry) {
+      trackStats.newestStatsEntry = statsCachedAt;
+    }
+  }
+
+  // Try to get total tracks from Plex for coverage calculation
+  // Note: This is best-effort and may be slow, so we catch errors and continue
+  try {
+    const musicSection = await findMusicSection();
+    const allTracks = await musicSection.searchTracks({ limit: 1 }); // Just get the count
+    // Plex API may attach totalSize as a non-standard property on the array
+    const totalSize = (allTracks as unknown as { totalSize?: number }).totalSize;
+    trackStats.totalTracks = totalSize || 0;
+    trackStats.coverage = trackStats.totalTracks > 0
+      ? (trackStats.total / trackStats.totalTracks) * 100
+      : 0;
+  } catch (error) {
+    logger.warn({ error }, 'failed to get total track count from Plex for coverage calculation');
+    trackStats.totalTracks = trackStats.total; // Fallback to cached count
+    trackStats.coverage = 100; // Assume full coverage if we can't query Plex
+  }
+
   return {
     artists: buildStats(artistEntries),
-    albums: buildStats(albumEntries)
+    albums: buildStats(albumEntries),
+    tracks: trackStats
   };
 }
 
@@ -105,7 +200,7 @@ export async function getCacheStats(): Promise<CacheStats> {
  */
 export async function clearExpiredCache(): Promise<number> {
   const db = getDb();
-  const now = new Date();
+  const now = new Date(); // Use Date object for timestamp_ms comparison
 
   const deletedArtists = await db
     .delete(artistCache)
@@ -335,6 +430,7 @@ export async function refreshExpiringCache(options: {
 
 /**
  * Filter out artists that already have valid cache entries
+ * Optimized to use indexed WHERE IN query instead of full table scan
  */
 async function filterUncachedArtists(artistNames: string[]): Promise<string[]> {
   if (artistNames.length === 0) {
@@ -342,31 +438,32 @@ async function filterUncachedArtists(artistNames: string[]): Promise<string[]> {
   }
 
   const db = getDb();
-  const now = new Date();
+  const now = Date.now(); // Use timestamp (number) for SQL comparison
 
-  // Build a map of normalized names to original names
-  const nameMap = new Map<string, string>();
-  artistNames.forEach(name => {
-    nameMap.set(name.toLowerCase(), name);
-  });
+  // Normalize artist names for case-insensitive matching
+  const normalizedNames = artistNames.map(name => name.toLowerCase());
 
-  // Find all cached artists that haven't expired
-  // Query all cache entries since we can't efficiently do IN with large arrays in SQLite
-  const allCached = await db
+  // Optimized query: Only load cache entries matching our artist list
+  // Uses indexed WHERE IN instead of loading entire cache
+  const cached = await db
     .select({ artistName: artistCache.artistName, expiresAt: artistCache.expiresAt })
-    .from(artistCache);
+    .from(artistCache)
+    .where(
+      and(
+        sql`LOWER(${artistCache.artistName}) IN (${sql.join(normalizedNames.map(n => sql`${n}`), sql`, `)})`,
+        or(
+          sql`${artistCache.expiresAt} IS NULL`,
+          sql`${artistCache.expiresAt} > ${now}`
+        )
+      )
+    );
 
-  // Filter in memory for artists we care about that haven't expired
-  const cachedSet = new Set<string>();
-  for (const row of allCached) {
-    if (nameMap.has(row.artistName)) {
-      if (!row.expiresAt || row.expiresAt > now) {
-        cachedSet.add(row.artistName);
-      }
-    }
-  }
+  // Build set of cached artist names (case-insensitive)
+  const cachedSet = new Set<string>(
+    cached.map(row => row.artistName.toLowerCase())
+  );
 
-  // Return only artists not in cache
+  // Return only uncached artists
   const uncached = artistNames.filter(name => !cachedSet.has(name.toLowerCase()));
 
   logger.info(
@@ -610,6 +707,7 @@ export async function warmCache(options: {
 
 /**
  * Filter out albums that already have valid cache entries
+ * Optimized to use indexed WHERE IN query instead of full table scan
  */
 async function filterUncachedAlbums(
   albums: Array<{ artist: string; album: string; ratingKey: string }>
@@ -619,36 +717,38 @@ async function filterUncachedAlbums(
   }
 
   const db = getDb();
-  const now = new Date();
+  const now = Date.now(); // Use timestamp (number) for SQL comparison
 
-  // Build a map of normalized names to originals
-  const albumMap = new Map<string, { artist: string; album: string; ratingKey: string }>();
-  albums.forEach(item => {
-    const key = `${item.artist.toLowerCase()}|${item.album.toLowerCase()}`;
-    albumMap.set(key, item);
-  });
+  // Build compound keys for lookup (artist|album, case-insensitive)
+  const albumKeys = albums.map(item =>
+    `${item.artist.toLowerCase()}|${item.album.toLowerCase()}`
+  );
 
-  // Find all cached albums that haven't expired
-  const allCached = await db
+  // Optimized query: Only load cache entries matching our album list
+  // Uses indexed WHERE IN with compound key matching instead of loading entire cache
+  const cached = await db
     .select({
       artistName: albumCache.artistName,
       albumName: albumCache.albumName,
       expiresAt: albumCache.expiresAt
     })
-    .from(albumCache);
+    .from(albumCache)
+    .where(
+      and(
+        sql`LOWER(${albumCache.artistName} || '|' || ${albumCache.albumName}) IN (${sql.join(albumKeys.map(k => sql`${k}`), sql`, `)})`,
+        or(
+          sql`${albumCache.expiresAt} IS NULL`,
+          sql`${albumCache.expiresAt} > ${now}`
+        )
+      )
+    );
 
-  // Filter in memory for albums we care about that haven't expired
-  const cachedSet = new Set<string>();
-  for (const row of allCached) {
-    const key = `${row.artistName}|${row.albumName}`;
-    if (albumMap.has(key)) {
-      if (!row.expiresAt || row.expiresAt > now) {
-        cachedSet.add(key);
-      }
-    }
-  }
+  // Build set of cached album keys (case-insensitive)
+  const cachedSet = new Set<string>(
+    cached.map(row => `${row.artistName.toLowerCase()}|${row.albumName.toLowerCase()}`)
+  );
 
-  // Return only albums not in cache
+  // Return only uncached albums
   const uncached = albums.filter(item => {
     const key = `${item.artist.toLowerCase()}|${item.album.toLowerCase()}`;
     return !cachedSet.has(key);

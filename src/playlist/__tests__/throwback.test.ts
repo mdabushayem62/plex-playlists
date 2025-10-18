@@ -2,7 +2,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Track } from '@ctrl/plex';
-import { fetchThrowbackTracks, getThrowbackStats } from '../throwback.js';
+import {
+  fetchThrowbackTracks,
+  getThrowbackStats,
+  getHistoryDepth,
+  determineAdaptiveLookbackWindow,
+  hasThrowbackHistory
+} from '../throwback.js';
 import type { ThrowbackTrack } from '../throwback.js';
 import {
   createThrowbackHistory,
@@ -35,6 +41,14 @@ vi.mock('../../plex/client.js');
 vi.mock('../../plex/tracks.js');
 vi.mock('../../db/index.js');
 vi.mock('../../scoring/strategies.js');
+vi.mock('../../db/settings-service.js', () => ({
+  getEffectiveConfig: vi.fn().mockResolvedValue({
+    playlistTargetSize: 50,
+    throwbackLookbackStart: 730,
+    throwbackLookbackEnd: 1825,
+    throwbackRecentExclusion: 90
+  })
+}));
 
 import { getPlexServer } from '../../plex/client.js';
 import { fetchTracksByRatingKeys } from '../../plex/tracks.js';
@@ -450,5 +464,251 @@ describe('getThrowbackStats', () => {
     const stats = getThrowbackStats(tracks);
 
     expect(stats.avgPlayCountInWindow).toBeCloseTo(10, 0);
+  });
+});
+
+describe('getHistoryDepth', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const createMockLibrary = (hasMusicSection = true) => ({
+    sections: vi.fn().mockResolvedValue(
+      hasMusicSection
+        ? [{ CONTENT_TYPE: 'audio', key: 'music-1' }]
+        : [{ CONTENT_TYPE: 'video', key: 'movies-1' }]
+    )
+  });
+
+  it('detects history depth from oldest play', async () => {
+    const oldestPlay = 500; // 500 days ago
+    const history = [
+      createThrowbackHistory('1', oldestPlay, oldestPlay, { userRating: 4 }),
+      createThrowbackHistory('2', 300, 300, { userRating: 4 }),
+      createThrowbackHistory('3', 100, 100, { userRating: 4 })
+    ];
+
+    const server = {
+      history: vi.fn().mockResolvedValue(history),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const depth = await getHistoryDepth();
+
+    expect(depth).toBeGreaterThanOrEqual(oldestPlay - 1); // Allow for date math rounding
+    expect(depth).toBeLessThanOrEqual(oldestPlay + 1);
+  });
+
+  it('returns null when no history found', async () => {
+    const server = {
+      history: vi.fn().mockResolvedValue([]),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const depth = await getHistoryDepth();
+
+    expect(depth).toBeNull();
+  });
+
+  it('returns null when no music library section found', async () => {
+    const server = {
+      library: vi.fn().mockResolvedValue(createMockLibrary(false))
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const depth = await getHistoryDepth();
+
+    expect(depth).toBeNull();
+  });
+
+  it('handles errors gracefully', async () => {
+    const server = {
+      history: vi.fn().mockRejectedValue(new Error('Plex API error')),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const depth = await getHistoryDepth();
+
+    expect(depth).toBeNull();
+  });
+});
+
+describe('determineAdaptiveLookbackWindow', () => {
+  it('returns ideal window (2-5 years) for history >= 5 years', async () => {
+    const window = await determineAdaptiveLookbackWindow(2000);
+
+    expect(window).toEqual({ start: 730, end: 1825, label: '2-5 years' });
+  });
+
+  it('returns good window (1-3 years) for history >= 3 years', async () => {
+    const window = await determineAdaptiveLookbackWindow(1200);
+
+    expect(window).toEqual({ start: 365, end: 1095, label: '1-3 years' });
+  });
+
+  it('returns acceptable window (6mo-2yr) for history >= 2 years', async () => {
+    const window = await determineAdaptiveLookbackWindow(800);
+
+    expect(window).toEqual({ start: 180, end: 730, label: '6 months - 2 years' });
+  });
+
+  it('returns minimum window (3-6mo) for history >= 6 months', async () => {
+    const window = await determineAdaptiveLookbackWindow(200);
+
+    expect(window).toEqual({ start: 90, end: 180, label: '3-6 months' });
+  });
+
+  it('returns fallback window for history >= 3 months', async () => {
+    const window = await determineAdaptiveLookbackWindow(120);
+
+    expect(window).not.toBeNull();
+    expect(window!.start).toBeGreaterThanOrEqual(30);
+    expect(window!.end).toBeLessThanOrEqual(120);
+  });
+
+  it('returns null for insufficient history (< 3 months)', async () => {
+    const window = await determineAdaptiveLookbackWindow(60);
+
+    expect(window).toBeNull();
+  });
+
+  it('returns null for no history', async () => {
+    const window = await determineAdaptiveLookbackWindow(null);
+
+    expect(window).toBeNull();
+  });
+
+  it('auto-detects history depth when not provided', async () => {
+    const history = [createThrowbackHistory('1', 1200, 1200, { userRating: 4 })];
+    const server = {
+      history: vi.fn().mockResolvedValue(history),
+      library: vi.fn().mockResolvedValue({
+        sections: vi.fn().mockResolvedValue([{ CONTENT_TYPE: 'audio', key: 'music-1' }])
+      })
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const window = await determineAdaptiveLookbackWindow();
+
+    expect(window).not.toBeNull();
+    expect(window!.label).toBe('1-3 years');
+  });
+});
+
+describe('hasThrowbackHistory', () => {
+  it('returns true when sufficient history exists', async () => {
+    const history = [createThrowbackHistory('1', 200, 200, { userRating: 4 })];
+    const server = {
+      history: vi.fn().mockResolvedValue(history),
+      library: vi.fn().mockResolvedValue({
+        sections: vi.fn().mockResolvedValue([{ CONTENT_TYPE: 'audio', key: 'music-1' }])
+      })
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const hasHistory = await hasThrowbackHistory();
+
+    expect(hasHistory).toBe(true);
+  });
+
+  it('returns false when insufficient history', async () => {
+    const history = [createThrowbackHistory('1', 60, 60, { userRating: 4 })];
+    const server = {
+      history: vi.fn().mockResolvedValue(history),
+      library: vi.fn().mockResolvedValue({
+        sections: vi.fn().mockResolvedValue([{ CONTENT_TYPE: 'audio', key: 'music-1' }])
+      })
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const hasHistory = await hasThrowbackHistory();
+
+    expect(hasHistory).toBe(false);
+  });
+});
+
+describe('fetchThrowbackTracks with adaptive window', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getDb).mockReturnValue(createMockDatabaseWithCacheUpdate() as any);
+    vi.mocked(calculateScore).mockReturnValue({
+      finalScore: 0.5,
+      components: { metadata: { nostalgiaWeight: 0.5, qualityScore: 0.5 } }
+    } as any);
+  });
+
+  const createMockLibrary = (hasMusicSection = true) => ({
+    sections: vi.fn().mockResolvedValue(
+      hasMusicSection
+        ? [{ CONTENT_TYPE: 'audio', key: 'music-1' }]
+        : [{ CONTENT_TYPE: 'video', key: 'movies-1' }]
+    )
+  });
+
+  it('adapts window for library with 1 year history', async () => {
+    const historyDepth = 1100; // ~3 years, should use 1-3 year window (365-1095 days)
+    const historyItems = [
+      createThrowbackHistory('1', historyDepth, historyDepth, { title: 'Old Track', artist: 'Artist', userRating: 4 }),
+      createThrowbackHistory('2', 500, 500, { title: 'Mid Track', artist: 'Artist B', userRating: 5 })
+    ];
+
+    const server = {
+      history: vi.fn()
+        .mockResolvedValueOnce(historyItems) // First call for depth check
+        .mockResolvedValueOnce(historyItems) // Second call for actual fetching
+        .mockResolvedValue([]),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const tracks = [
+      createMockTrack({ ratingKey: '1', userRating: 8 }),
+      createMockTrack({ ratingKey: '2', userRating: 10 })
+    ];
+    vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap(tracks));
+
+    const results = await fetchThrowbackTracks();
+
+    expect(results.length).toBeGreaterThan(0);
+    // Should have used adaptive window (1-3 years) instead of failing with default (2-5 years)
+  });
+
+  it('throws error for library with insufficient history', async () => {
+    const historyDepth = 60; // Only 2 months
+    const historyItems = [createThrowbackHistory('1', historyDepth, historyDepth, { userRating: 4 })];
+
+    const server = {
+      history: vi.fn().mockResolvedValue(historyItems),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    await expect(fetchThrowbackTracks()).rejects.toThrow(
+      /Insufficient listening history for throwback playlist.*need at least 90 days/
+    );
+  });
+
+  it('uses configured window when explicitly specified', async () => {
+    const historyItems = [createThrowbackHistory('1', 200, 200, { userRating: 4 })];
+
+    const server = {
+      history: vi.fn()
+        .mockResolvedValueOnce(historyItems)
+        .mockResolvedValue([]),
+      library: vi.fn().mockResolvedValue(createMockLibrary())
+    };
+    vi.mocked(getPlexServer).mockResolvedValue(server as any);
+
+    const track = createMockTrack({ ratingKey: '1', userRating: 8 });
+    vi.mocked(fetchTracksByRatingKeys).mockResolvedValue(createTrackMap([track]));
+
+    // Explicitly specify window - should NOT adapt
+    const results = await fetchThrowbackTracks(50, 100, 200, 90);
+
+    expect(results.length).toBeGreaterThan(0);
+    // Should have used explicit window (100-200 days)
   });
 });

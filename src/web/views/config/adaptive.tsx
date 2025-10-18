@@ -5,7 +5,14 @@
 
 import Html from '@kitajs/html';
 import { Layout } from '../layout.tsx';
-import type { AdaptiveStats } from '../../adaptive/adaptive-repository.ts';
+
+export interface AdaptiveStats {
+  totalSkips: number;
+  totalAdaptations: number;
+  activeSessions: number;
+  totalSessions: number;
+  avgSkipsPerSession: number;
+}
 
 interface AdaptiveSettingsPageProps {
   enabled: boolean;
@@ -18,11 +25,14 @@ interface AdaptiveSettingsPageProps {
   page: string;
 }
 
-export function AdaptiveSettingsPage(props: AdaptiveSettingsPageProps): JSX.Element {
-  const { enabled, sensitivity, minSkips, windowMinutes, cooldownSeconds, stats, setupComplete, page } = props;
+/**
+ * Adaptive settings content only (for HTMX partial rendering)
+ */
+export function AdaptiveSettingsContent(props: Omit<AdaptiveSettingsPageProps, 'page' | 'setupComplete'>) {
+  const { enabled, sensitivity, minSkips, windowMinutes, cooldownSeconds, stats } = props;
 
   return (
-    <Layout title="Adaptive PlayQueue Settings (Beta)" page={page} setupComplete={setupComplete}>
+    <div>
       <style>{`
         .config-card {
           background: var(--pico-card-background-color);
@@ -399,7 +409,7 @@ export function AdaptiveSettingsPage(props: AdaptiveSettingsPageProps): JSX.Elem
           saveBtn.textContent = '⏳ Saving...';
 
           try {
-            const response = await fetch('/api/settings/batch', {
+            const response = await fetch('/config/api/settings/batch', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ settings })
@@ -423,6 +433,19 @@ export function AdaptiveSettingsPage(props: AdaptiveSettingsPageProps): JSX.Elem
           }
         });
       `}</script>
+    </div>
+  );
+}
+
+/**
+ * Full adaptive settings page with layout (for regular requests)
+ */
+export function AdaptiveSettingsPage(props: AdaptiveSettingsPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title="Adaptive PlayQueue Settings (Beta)" page={page} setupComplete={setupComplete}>
+      <AdaptiveSettingsContent {...contentProps} />
     </Layout>
   );
 }

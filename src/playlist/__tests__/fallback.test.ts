@@ -69,7 +69,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result).toHaveLength(3);
     expect(musicSection.searchTracks).toHaveBeenCalledWith({
@@ -87,7 +87,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    await fetchFallbackCandidates(20);
+    await fetchFallbackCandidates(20, {}, false);
 
     expect(musicSection.searchTracks).toHaveBeenCalledWith({
       sort: 'userRating:desc',
@@ -109,7 +109,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     // Should be sorted by finalScore descending
     expect(result[0].ratingKey).toBe('2'); // Highest rated
@@ -128,7 +128,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result[0].playCount).toBe(42);
   });
@@ -148,7 +148,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result[0].playCount).toBe(0);
   });
@@ -169,7 +169,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result[0].lastPlayedAt).toBeNull();
   });
@@ -186,7 +186,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result[0].lastPlayedAt).toEqual(viewedAt);
   });
@@ -202,7 +202,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    await expect(fetchFallbackCandidates(10)).rejects.toThrow(
+    await expect(fetchFallbackCandidates(10, {}, false)).rejects.toThrow(
       'no music library section found for fallback selection'
     );
   });
@@ -219,7 +219,7 @@ describe('fetchFallbackCandidates', () => {
 
     vi.mocked(getPlexServer).mockResolvedValue(server);
 
-    const result = await fetchFallbackCandidates(10);
+    const result = await fetchFallbackCandidates(10, {}, false);
 
     expect(result).toHaveLength(1);
     expect(musicSection.searchTracks).toHaveBeenCalled();

@@ -17,7 +17,7 @@ function filterPlaylists(query) {
   allSections.forEach(section => {
     const h3 = section.querySelector('h3');
     if (h3 && h3.textContent.includes('Daily Playlists')) dailySection = section;
-    if (h3 && h3.textContent.includes('Genre Playlists')) genreSection = section;
+    if (h3 && h3.textContent.includes('Custom Playlists')) genreSection = section;
   });
 
   let visibleCount = 0;
@@ -72,5 +72,109 @@ function filterPlaylists(query) {
   }
 }
 
-// Expose function globally for inline event handlers
+/**
+ * Delete a custom playlist definition with two-click confirmation
+ */
+async function deleteCustomPlaylist(id, name) {
+  const btn = event.currentTarget;
+  const originalText = btn.innerHTML;
+
+  // First click: show confirmation
+  if (!btn.hasAttribute('data-confirming')) {
+    btn.innerHTML = '⚠️ Confirm?';
+    btn.style.background = 'var(--pico-del-color)';
+    btn.setAttribute('data-confirming', 'true');
+
+    // Reset after 3 seconds if not confirmed
+    setTimeout(() => {
+      if (btn.hasAttribute('data-confirming')) {
+        btn.innerHTML = originalText;
+        btn.style.background = '';
+        btn.removeAttribute('data-confirming');
+      }
+    }, 3000);
+    return;
+  }
+
+  // Second click: execute deletion
+  btn.disabled = true;
+  btn.innerHTML = '⏳';
+  btn.style.background = '';
+  btn.removeAttribute('data-confirming');
+
+  try {
+    const response = await fetch(`/playlists/builder/${id}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      btn.innerHTML = '✓';
+      showToast('Playlist deleted successfully! Reloading...', 'success');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      throw new Error('Failed to delete playlist');
+    }
+  } catch (error) {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    btn.style.background = '';
+    showToast(error.message, 'error');
+  }
+}
+
+/**
+ * Delete a generated playlist with two-click confirmation
+ * (for playlists in the playlists table, not custom_playlists definitions)
+ */
+async function deleteGeneratedPlaylist(id, name) {
+  const btn = event.currentTarget;
+  const originalText = btn.innerHTML;
+
+  // First click: show confirmation
+  if (!btn.hasAttribute('data-confirming')) {
+    btn.innerHTML = '⚠️ Confirm?';
+    btn.style.background = 'var(--pico-del-color)';
+    btn.setAttribute('data-confirming', 'true');
+
+    // Reset after 3 seconds if not confirmed
+    setTimeout(() => {
+      if (btn.hasAttribute('data-confirming')) {
+        btn.innerHTML = originalText;
+        btn.style.background = '';
+        btn.removeAttribute('data-confirming');
+      }
+    }, 3000);
+    return;
+  }
+
+  // Second click: execute deletion
+  btn.disabled = true;
+  btn.innerHTML = '⏳';
+  btn.style.background = '';
+  btn.removeAttribute('data-confirming');
+
+  try {
+    const response = await fetch(`/playlists/${id}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      btn.innerHTML = '✓';
+      showToast('Playlist deleted successfully! Reloading...', 'success');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const text = await response.text();
+      throw new Error(text || 'Failed to delete playlist');
+    }
+  } catch (error) {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    btn.style.background = '';
+    showToast(error.message, 'error');
+  }
+}
+
+// Expose functions globally for inline event handlers
 window.filterPlaylists = filterPlaylists;
+window.deleteCustomPlaylist = deleteCustomPlaylist;
+window.deleteGeneratedPlaylist = deleteGeneratedPlaylist;

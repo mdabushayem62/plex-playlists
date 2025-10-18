@@ -1,7 +1,6 @@
 import { subDays } from 'date-fns';
 import type { HistoryResult } from '@ctrl/plex';
 
-import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
 import { getPlexServer } from '../plex/client.js';
 import { fetchTracksByRatingKeys } from '../plex/tracks.js';
@@ -10,6 +9,7 @@ import type { CandidateTrack } from './candidate-builder.js';
 import { getDb } from '../db/index.js';
 import { artistCache } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { getEffectiveConfig } from '../db/settings-service.js';
 
 export interface ThrowbackTrack extends CandidateTrack {
   lastPlayedAt: Date;
@@ -36,27 +36,68 @@ export interface ThrowbackTrack extends CandidateTrack {
  * @returns Array of throwback tracks sorted by throwback score
  */
 export const fetchThrowbackTracks = async (
-  targetSize: number = APP_ENV.PLAYLIST_TARGET_SIZE,
-  lookbackStart: number = APP_ENV.THROWBACK_LOOKBACK_START,
-  lookbackEnd: number = APP_ENV.THROWBACK_LOOKBACK_END,
-  recentExclusion: number = APP_ENV.THROWBACK_RECENT_EXCLUSION
+  targetSize?: number,
+  lookbackStart?: number,
+  lookbackEnd?: number,
+  recentExclusion?: number
 ): Promise<ThrowbackTrack[]> => {
   const server = await getPlexServer();
   const now = new Date();
 
+  // Load configurable settings from database (with env fallbacks)
+  const config = await getEffectiveConfig();
+  const finalTargetSize = targetSize ?? config.playlistTargetSize;
+  let finalLookbackStart = lookbackStart ?? config.throwbackLookbackStart;
+  let finalLookbackEnd = lookbackEnd ?? config.throwbackLookbackEnd;
+  const finalRecentExclusion = recentExclusion ?? config.throwbackRecentExclusion;
+
+  // If using default config, check if we need to adapt the window
+  // Only adapt if caller hasn't explicitly specified custom windows
+  let adaptiveWindow: string | null = null;
+  if (lookbackStart === undefined && lookbackEnd === undefined) {
+    const historyDepth = await getHistoryDepth();
+
+    if (historyDepth !== null && historyDepth < finalLookbackEnd) {
+      // Not enough history for configured window, use adaptive approach
+      const adaptive = await determineAdaptiveLookbackWindow(historyDepth);
+
+      if (adaptive === null) {
+        throw new Error(
+          `Insufficient listening history for throwback playlist. Found ${historyDepth} days of history, but need at least 90 days (3 months) for throwback concept.`
+        );
+      }
+
+      finalLookbackStart = adaptive.start;
+      finalLookbackEnd = adaptive.end;
+      adaptiveWindow = adaptive.label;
+
+      logger.info(
+        {
+          historyDepth,
+          originalWindow: { start: config.throwbackLookbackStart, end: config.throwbackLookbackEnd },
+          adaptedWindow: { start: finalLookbackStart, end: finalLookbackEnd, label: adaptiveWindow }
+        },
+        'using adaptive lookback window due to limited history'
+      );
+    }
+  }
+
   // Define lookback window (e.g., 2-5 years ago)
-  const windowStart = subDays(now, lookbackEnd);
-  const windowEnd = subDays(now, lookbackStart);
-  const recentThreshold = subDays(now, recentExclusion);
+  const windowStart = subDays(now, finalLookbackEnd);
+  const windowEnd = subDays(now, finalLookbackStart);
+  const recentThreshold = subDays(now, finalRecentExclusion);
 
   logger.info(
     {
-      targetSize,
+      targetSize: finalTargetSize,
+      lookbackStart: finalLookbackStart,
+      lookbackEnd: finalLookbackEnd,
+      recentExclusion: finalRecentExclusion,
       lookbackWindow: {
         start: windowStart.toISOString().split('T')[0],
         end: windowEnd.toISOString().split('T')[0]
       },
-      recentExclusion: recentThreshold.toISOString().split('T')[0]
+      recentThreshold: recentThreshold.toISOString().split('T')[0]
     },
     'fetching tracks for throwback playlist'
   );
@@ -209,14 +250,14 @@ export const fetchThrowbackTracks = async (
       );
 
       // Use centralized throwback scoring
-      const scoringResult = calculateScore('throwback', {
+      const scoringResult = await calculateScore('throwback', {
         userRating: trackData.rating * 2, // Convert 0-5 to 0-10 for scoring
         playCount: trackData.playCountInWindow,
         playCountInWindow: trackData.playCountInWindow,
         lastPlayedAt: trackData.mostRecentPlayEver,
         daysSincePlay: daysSinceLastPlay,
-        lookbackStart,
-        lookbackEnd,
+        lookbackStart: finalLookbackStart,
+        lookbackEnd: finalLookbackEnd,
         now
       });
 
@@ -244,7 +285,7 @@ export const fetchThrowbackTracks = async (
 
     // Sort by throwback score and take top candidates
     preliminaryCandidates.sort((a, b) => b.throwbackScore - a.throwbackScore);
-    const topPreliminary = preliminaryCandidates.slice(0, targetSize * 2);
+    const topPreliminary = preliminaryCandidates.slice(0, finalTargetSize * 2);
 
     // Fetch full Track objects from Plex for top candidates
     const ratingKeys = topPreliminary.map(c => c.ratingKey);
@@ -286,7 +327,7 @@ export const fetchThrowbackTracks = async (
   logger.info(
     {
       totalCandidates: candidates.length,
-      targetSize,
+      targetSize: finalTargetSize,
       avgScore: candidates.length > 0
         ? (candidates.reduce((sum, t) => sum + t.throwbackScore, 0) / candidates.length).toFixed(3)
         : 0,
@@ -304,13 +345,19 @@ export const fetchThrowbackTracks = async (
   if (candidates.length === 0) {
     const windowStartStr = windowStart.toISOString().split('T')[0];
     const windowEndStr = windowEnd.toISOString().split('T')[0];
+    const windowLabel = adaptiveWindow || '2-5 years ago';
 
     const errorMessage = allHistory.length === 0
-      ? `No listening history found for throwback playlist. Throwback window: ${windowStartStr} to ${windowEndStr} (2-5 years ago). This playlist requires historical listening data.`
-      : `No qualifying tracks found for throwback playlist. Found ${allHistory.length} history entries but all were either recently replayed or filtered out. Throwback window: ${windowStartStr} to ${windowEndStr}.`;
+      ? `No listening history found for throwback playlist. Throwback window: ${windowStartStr} to ${windowEndStr} (${windowLabel}). This playlist requires historical listening data.`
+      : `No qualifying tracks found for throwback playlist. Found ${allHistory.length} history entries but all were either recently replayed or filtered out. Throwback window: ${windowStartStr} to ${windowEndStr} (${windowLabel}).`;
 
     logger.error(
-      { lookbackWindow: { start: windowStartStr, end: windowEndStr }, totalHistoryEntries: allHistory.length, errorMessage },
+      {
+        lookbackWindow: { start: windowStartStr, end: windowEndStr, label: windowLabel },
+        totalHistoryEntries: allHistory.length,
+        adaptiveWindow: adaptiveWindow !== null,
+        errorMessage
+      },
       'throwback playlist generation failed'
     );
 
@@ -384,4 +431,114 @@ export const getThrowbackStats = (tracks: ThrowbackTrack[]): {
     oldestTrack,
     newestTrack
   };
+};
+
+/**
+ * Detect the depth of available listening history
+ * Returns the number of days since the oldest play, or null if no history
+ */
+export const getHistoryDepth = async (): Promise<number | null> => {
+  try {
+    const server = await getPlexServer();
+    const now = new Date();
+
+    // Get music library section ID
+    const library = await server.library();
+    const sections = await library.sections();
+    const musicSection = sections.find(s => s.CONTENT_TYPE === 'audio');
+
+    if (!musicSection) {
+      logger.debug('no music library section found for history depth check');
+      return null;
+    }
+
+    // Fetch a sample far back in time (15 years) to find oldest plays
+    const farBack = subDays(now, 5475); // 15 years
+    const historySample = await server.history(100, farBack, undefined, undefined, musicSection.key);
+
+    if (!Array.isArray(historySample) || historySample.length === 0) {
+      logger.debug('no history found for depth check');
+      return null;
+    }
+
+    // Find the oldest viewedAt timestamp
+    let oldestTimestamp = now.getTime();
+    for (const item of historySample) {
+      if (!item || typeof item !== 'object') continue;
+
+      const viewedAt = item.viewedAt > 1_000_000_000_000
+        ? new Date(item.viewedAt)
+        : new Date(item.viewedAt * 1000);
+
+      if (viewedAt.getTime() < oldestTimestamp) {
+        oldestTimestamp = viewedAt.getTime();
+      }
+    }
+
+    const depthInDays = Math.floor((now.getTime() - oldestTimestamp) / (1000 * 60 * 60 * 24));
+
+    logger.debug(
+      { depthInDays, oldestDate: new Date(oldestTimestamp).toISOString().split('T')[0] },
+      'detected history depth'
+    );
+
+    return depthInDays;
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'failed to detect history depth'
+    );
+    return null;
+  }
+};
+
+/**
+ * Determine appropriate lookback window based on available history depth
+ *
+ * @param historyDepth - Days of available history, or null to auto-detect
+ * @returns Lookback window config or null if insufficient history for throwback
+ */
+export const determineAdaptiveLookbackWindow = async (
+  historyDepth?: number | null
+): Promise<{ start: number; end: number; label: string } | null> => {
+  const depth = historyDepth === undefined ? await getHistoryDepth() : historyDepth;
+
+  if (depth === null || depth < 90) {
+    // Less than 3 months - not enough for "throwback" concept
+    return null;
+  }
+
+  // Ideal: 2-5 years
+  if (depth >= 1825) {
+    return { start: 730, end: 1825, label: '2-5 years' };
+  }
+
+  // Good: 1-3 years
+  if (depth >= 1095) {
+    return { start: 365, end: 1095, label: '1-3 years' };
+  }
+
+  // Acceptable: 6 months - 2 years
+  if (depth >= 730) {
+    return { start: 180, end: 730, label: '6 months - 2 years' };
+  }
+
+  // Minimum: 3-6 months
+  if (depth >= 180) {
+    return { start: 90, end: 180, label: '3-6 months' };
+  }
+
+  // Fallback: whatever we have (90+ days)
+  const windowEnd = Math.max(depth - 30, 90); // Leave at least 30 days buffer
+  const windowStart = Math.max(Math.floor(windowEnd / 2), 30);
+  return { start: windowStart, end: windowEnd, label: `${windowStart}-${windowEnd} days` };
+};
+
+/**
+ * Check if there is sufficient historical listening data for throwback playlist
+ * Returns true if there are plays from at least 3 months ago
+ */
+export const hasThrowbackHistory = async (): Promise<boolean> => {
+  const window = await determineAdaptiveLookbackWindow();
+  return window !== null;
 };

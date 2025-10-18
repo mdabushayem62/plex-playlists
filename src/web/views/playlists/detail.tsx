@@ -26,6 +26,31 @@ interface Track {
   score: number | null;
   recencyWeight: number | null;
   fallbackScore: number | null;
+  scoringMetadata: string | null; // JSON string containing full ScoringComponents
+}
+
+interface ScoringMetadata {
+  skipPenalty?: number;
+  timeOfDayBoost?: number;
+  genreMatchScore?: number;
+  moodMatchScore?: number;
+  artistSpacingPenalty?: number;
+  discoveryBoost?: number;
+  nostalgiaWeight?: number;
+  playCountPenalty?: number;
+  recencyPenalty?: number;
+  qualityScore?: number;
+  energyAlignmentScore?: number;
+  tempoMatchScore?: number;
+}
+
+interface ScoringComponents {
+  finalScore?: number;
+  recencyWeight?: number;
+  ratingScore?: number;
+  playCountScore?: number;
+  fallbackScore?: number;
+  metadata?: ScoringMetadata;
 }
 
 interface JobRun {
@@ -76,13 +101,6 @@ function timeAgo(date: Date): JSX.Element {
   return days + 'd ago';
 }
 
-function getPlaylistEmoji(window: string): JSX.Element {
-  if (window === 'morning') return '🌅';
-  if (window === 'afternoon') return '☀️';
-  if (window === 'evening') return '🌙';
-  return '🎵';
-}
-
 function formatDate(date: Date): JSX.Element {
   return new Date(date).toLocaleString();
 }
@@ -91,7 +109,10 @@ function formatScore(score: number | null): JSX.Element {
   return score ? score.toFixed(3) : '-';
 }
 
-export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element {
+/**
+ * Playlist detail content only (for HTMX partial rendering)
+ */
+export function PlaylistDetailContent(props: Omit<PlaylistDetailPageProps, 'page' | 'setupComplete'>) {
   const {
     playlist,
     tracks,
@@ -100,19 +121,16 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
     prevPlaylist,
     nextPlaylist,
     customPlaylistData,
-    setupComplete,
-    page,
     breadcrumbs
   } = props;
 
   return (
-    <Layout title={playlist.title || playlist.window} page={page} setupComplete={setupComplete}>
-      <div>
+    <div>
         {/* Breadcrumbs & Navigation */}
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div class="flex-between mb-5">
           {breadcrumbs && (
             <nav aria-label="breadcrumb">
-              <ol style="display: flex; list-style: none; padding: 0; gap: 0.5rem; font-size: 0.875rem; color: var(--pico-muted-color); margin: 0;">
+              <ol class="flex text-muted-sm m-0 p-0 gap-3" style="list-style: none;">
                 {breadcrumbs.map((crumb, idx) => (
                   <>
                     {idx > 0 && <li>›</li>}
@@ -130,71 +148,69 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
           )}
 
           {/* Previous/Next Navigation */}
-          <div style="display: flex; gap: 0.5rem;">
+          <div class="flex gap-3">
             {prevPlaylist ? (
               <a
                 href={`/playlists/${prevPlaylist.id}`}
                 role="button"
-                class="secondary"
-                style="padding: 0.5rem 1rem; margin: 0;"
+                class="secondary m-0 px-5 py-3"
                 title={prevPlaylist.title || prevPlaylist.window}
               >
                 ← Previous
               </a>
             ) : (
-              <button disabled style="padding: 0.5rem 1rem; margin: 0;">← Previous</button>
+              <button disabled class="m-0 px-5 py-3">← Previous</button>
             )}
             {nextPlaylist ? (
               <a
                 href={`/playlists/${nextPlaylist.id}`}
                 role="button"
-                class="secondary"
-                style="padding: 0.5rem 1rem; margin: 0;"
+                class="secondary m-0 px-5 py-3"
                 title={nextPlaylist.title || nextPlaylist.window}
               >
                 Next →
               </a>
             ) : (
-              <button disabled style="padding: 0.5rem 1rem; margin: 0;">Next →</button>
+              <button disabled class="m-0 px-5 py-3">Next →</button>
             )}
           </div>
         </div>
 
         {/* Playlist Header */}
-        <div style="background: var(--pico-card-background-color); padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem;">
-          <div style="margin-bottom: 1rem;">
-            <h2 style="margin: 0;">{playlist.title || playlist.window}</h2>
+        <div class="card p-6 rounded-lg mb-5">
+          <div class="mb-5">
+            <h2 class="m-0">{playlist.title || playlist.window}</h2>
             {playlist.description && (
-              <p style="margin: 0.5rem 0 0 0; color: var(--pico-muted-color);">
+              <p class="text-muted mt-3 m-0">
                 {playlist.description}
               </p>
             )}
           </div>
 
           {/* Playlist Stats */}
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem;">
+          <div class="grid-auto-wide gap-4 mt-5">
             <div>
-              <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Tracks</p>
-              <p style="margin: 0; font-size: 1.5rem; font-weight: 600;">{playlist.trackCount}</p>
+              <p class="text-muted-sm m-0">Tracks</p>
+              <p class="m-0" style="font-size: 1.5rem; font-weight: 600;">{playlist.trackCount}</p>
             </div>
             <div>
-              <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Last Generated</p>
-              <p style="margin: 0; font-size: 1rem;">{timeAgo(playlist.generatedAt)}</p>
-              <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.75rem;">{formatDate(playlist.generatedAt)}</p>
+              <p class="text-muted-sm m-0">Last Generated</p>
+              <p class="m-0" style="font-size: 1rem;">{timeAgo(playlist.generatedAt)}</p>
+              <p class="text-muted-xs m-0">{formatDate(playlist.generatedAt)}</p>
             </div>
             {customPlaylistData && (
               <div>
-                <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Strategy</p>
-                <p style="margin: 0; font-size: 1rem; text-transform: capitalize;">
+                <p class="text-muted-sm m-0">Strategy</p>
+                <p class="m-0" style="font-size: 1rem; text-transform: capitalize;">
                   {customPlaylistData.scoringStrategy}
                 </p>
               </div>
             )}
             {playlist.plexRatingKey && (
               <div>
-                <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.875rem;">Plex</p>
-                <p style="margin: 0;">
-                  <a href="#" style="font-size: 0.875rem;" title="Open in Plex (requires Plex app)">
+                <p class="text-muted-sm m-0">Plex</p>
+                <p class="m-0">
+                  <a href="#" class="text-sm" title="Open in Plex (requires Plex app)">
                     View in Plex →
                   </a>
                 </p>
@@ -204,11 +220,11 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
 
           {/* Genre Tag Cloud */}
           {genreStats && genreStats.length > 0 && (
-            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color);">
-              <p style="margin: 0 0 0.75rem 0; color: var(--pico-muted-color); font-size: 0.875rem; font-weight: 600;">
+            <div class="mt-6 pt-5 border-top">
+              <p class="text-muted-sm m-0 mb-4" style="font-weight: 600;">
                 Genres in this playlist:
               </p>
-              <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+              <div class="flex flex-wrap gap-3">
                 {genreStats.slice(0, 15).map(g => (
                   <span
                     style={`
@@ -222,11 +238,11 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
                     title={`${g.count} tracks (${g.percentage.toFixed(1)}%)`}
                   >
                     {g.genre}
-                    <small style="color: var(--pico-muted-color); margin-left: 0.25rem;">{g.count}</small>
+                    <small class="text-muted" style="margin-left: 0.25rem;">{g.count}</small>
                   </span>
                 ))}
                 {genreStats.length > 15 && (
-                  <span style="color: var(--pico-muted-color); font-size: 0.875rem; padding: 0.25rem 0.5rem;">
+                  <span class="text-muted-sm" style="padding: 0.25rem 0.5rem;">
                     +{genreStats.length - 15} more
                   </span>
                 )}
@@ -235,31 +251,34 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
           )}
 
           {/* Actions */}
-          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color);">
+          <div class="flex gap-4 flex-wrap mt-6 pt-5 border-top">
             <button
               id="regenerateBtn"
               data-window={playlist.window}
               onclick="confirmRegenerate()"
-              style="margin: 0;"
+              class="m-0"
+              title="Regenerate this playlist"
+              aria-label="Regenerate this playlist"
             >
               🔄 Regenerate
             </button>
-            <a href={`/playlists/${playlist.id}/export/csv`} role="button" class="secondary" style="margin: 0;">
+            <a href={`/playlists/${playlist.id}/export/csv`} role="button" class="secondary m-0" title="Export playlist as CSV" aria-label="Export playlist as CSV">
               📊 Export CSV
             </a>
-            <a href={`/playlists/${playlist.id}/export/m3u`} role="button" class="secondary" style="margin: 0;">
+            <a href={`/playlists/${playlist.id}/export/m3u`} role="button" class="secondary m-0" title="Export playlist as M3U" aria-label="Export playlist as M3U">
               🎵 Export M3U
             </a>
-            <a href="/playlists/builder" role="button" class="secondary" style="margin: 0;">
+            <a href="/playlists/builder" role="button" class="secondary m-0" title="Manage all playlists" aria-label="Manage all playlists">
               ⚙️ Manage Playlists
             </a>
             <button
               id="deleteBtn"
               data-playlist-id={playlist.id}
               onclick="confirmDelete()"
-              class="secondary"
-              style="margin: 0; margin-left: auto;"
+              class="secondary m-0"
+              style="margin-left: auto;"
               title="Delete this playlist"
+              aria-label="Delete this playlist"
             >
               🗑️ Delete
             </button>
@@ -270,7 +289,7 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
         <section>
           <h3>Tracks ({tracks.length})</h3>
           {tracks.length === 0 ? (
-            <p style="color: var(--pico-muted-color);">No tracks in this playlist.</p>
+            <p class="text-muted">No tracks in this playlist.</p>
           ) : (
             <>
               <div style="overflow-x: auto;">
@@ -281,8 +300,8 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
                       <th>Title</th>
                       <th>Artist</th>
                       <th>Album</th>
-                      <th style="width: 120px; text-align: center;">Genres</th>
-                      <th style="width: 100px; text-align: right;" title="Final Score (70% recency + 30% fallback)">Score</th>
+                      <th class="text-center" style="width: 120px;">Genres</th>
+                      <th class="text-right" style="width: 100px;" title="Composite score from multiple factors - hover over tracks for detailed breakdown">Score</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -293,54 +312,109 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
                         if (track.genres) {
                           trackGenres = JSON.parse(track.genres);
                         }
-                      } catch (e) {
+                      } catch (_e) {
                         // Ignore parse errors
                       }
 
-                      // Build tooltip content
-                      const tooltipContent = [
-                        'Score Breakdown:',
-                        '• Final: ' + formatScore(track.score),
-                        '• Recency: ' + formatScore(track.recencyWeight),
-                        '• Fallback: ' + formatScore(track.fallbackScore),
-                        trackGenres.length > 0 ? '\nGenres: ' + trackGenres.join(', ') : ''
-                      ].filter(Boolean).join('\n');
+                      // Parse scoring metadata for detailed tooltip
+                      let scoringComponents: ScoringComponents | null = null;
+                      try {
+                        if (track.scoringMetadata) {
+                          scoringComponents = JSON.parse(track.scoringMetadata) as ScoringComponents;
+                        }
+                      } catch (_e) {
+                        // Ignore parse errors
+                      }
+
+                      // Build comprehensive tooltip content
+                      const tooltipLines: string[] = ['Score Breakdown:'];
+
+                      if (scoringComponents) {
+                        // Show all core components
+                        tooltipLines.push('• Final Score: ' + formatScore(scoringComponents.finalScore ?? null));
+                        tooltipLines.push('• Recency Weight: ' + formatScore(scoringComponents.recencyWeight ?? null));
+                        tooltipLines.push('• Rating Score: ' + formatScore(scoringComponents.ratingScore ?? null));
+                        tooltipLines.push('• Play Count Score: ' + formatScore(scoringComponents.playCountScore ?? null));
+                        tooltipLines.push('• Fallback Score: ' + formatScore(scoringComponents.fallbackScore ?? null));
+
+                        // Show metadata components if present
+                        if (scoringComponents.metadata) {
+                          const meta = scoringComponents.metadata;
+                          if (meta.skipPenalty !== undefined) {
+                            tooltipLines.push('• Skip Penalty: ' + formatScore(meta.skipPenalty ?? null));
+                          }
+                          if (meta.timeOfDayBoost !== undefined) {
+                            tooltipLines.push('• Time of Day Boost: ' + formatScore(meta.timeOfDayBoost ?? null));
+                          }
+                          if (meta.genreMatchScore !== undefined) {
+                            tooltipLines.push('• Genre Match: ' + formatScore(meta.genreMatchScore ?? null));
+                          }
+                          if (meta.moodMatchScore !== undefined) {
+                            tooltipLines.push('• Mood Match: ' + formatScore(meta.moodMatchScore ?? null));
+                          }
+                          if (meta.artistSpacingPenalty !== undefined) {
+                            tooltipLines.push('• Artist Spacing: ' + formatScore(meta.artistSpacingPenalty ?? null));
+                          }
+                          if (meta.discoveryBoost !== undefined) {
+                            tooltipLines.push('• Discovery Boost: ' + formatScore(meta.discoveryBoost ?? null));
+                          }
+                          if (meta.nostalgiaWeight !== undefined) {
+                            tooltipLines.push('• Nostalgia Weight: ' + formatScore(meta.nostalgiaWeight ?? null));
+                          }
+                          if (meta.playCountPenalty !== undefined) {
+                            tooltipLines.push('• Play Count Penalty: ' + formatScore(meta.playCountPenalty ?? null));
+                          }
+                          if (meta.recencyPenalty !== undefined) {
+                            tooltipLines.push('• Recency Penalty: ' + formatScore(meta.recencyPenalty ?? null));
+                          }
+                          if (meta.qualityScore !== undefined) {
+                            tooltipLines.push('• Quality Score: ' + formatScore(meta.qualityScore ?? null));
+                          }
+                          if (meta.energyAlignmentScore !== undefined) {
+                            tooltipLines.push('• Energy Alignment: ' + formatScore(meta.energyAlignmentScore ?? null));
+                          }
+                          if (meta.tempoMatchScore !== undefined) {
+                            tooltipLines.push('• Tempo Match: ' + formatScore(meta.tempoMatchScore ?? null));
+                          }
+                        }
+                      } else {
+                        // Fallback to legacy format for backward compatibility
+                        tooltipLines.push('• Final: ' + formatScore(track.score));
+                        tooltipLines.push('• Recency: ' + formatScore(track.recencyWeight));
+                        tooltipLines.push('• Fallback: ' + formatScore(track.fallbackScore));
+                      }
+
+                      // Add genres to tooltip
+                      if (trackGenres.length > 0) {
+                        tooltipLines.push('\nGenres: ' + trackGenres.join(', '));
+                      }
+
+                      const tooltipContent = tooltipLines.join('\n');
 
                       return (
                         <tr style="cursor: help;" title={tooltipContent}>
-                          <td style="color: var(--pico-muted-color);">{track.position + 1}</td>
+                          <td class="text-muted">{track.position + 1}</td>
                           <td><strong>{track.title || 'Unknown Title'}</strong></td>
                           <td>{track.artist || 'Unknown Artist'}</td>
-                          <td style="color: var(--pico-muted-color);">{track.album || '-'}</td>
-                          <td style="text-align: center; font-size: 0.75rem;">
+                          <td class="text-muted">{track.album || '-'}</td>
+                          <td class="text-xs text-center">
                             {trackGenres.length > 0 ? (
-                              <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; justify-content: center;">
+                              <div class="flex flex-wrap gap-1 justify-center">
                                 {trackGenres.slice(0, 2).map(g => (
-                                  <span style="
-                                    background: var(--pico-background-color);
-                                    padding: 0.125rem 0.375rem;
-                                    border-radius: 0.25rem;
-                                    white-space: nowrap;
-                                  ">{g}</span>
+                                  <span class="px-2 py-1 rounded" style="background: var(--pico-background-color); white-space: nowrap;">{g}</span>
                                 ))}
                                 {trackGenres.length > 2 && (
-                                  <span style="color: var(--pico-muted-color);">+{trackGenres.length - 2}</span>
+                                  <span class="text-muted">+{trackGenres.length - 2}</span>
                                 )}
                               </div>
                             ) : (
-                              <span style="color: var(--pico-muted-color);">-</span>
+                              <span class="text-muted">-</span>
                             )}
                           </td>
-                          <td style="text-align: right; font-family: monospace; font-size: 0.875rem;">
+                          <td class="text-sm text-right" style="font-family: monospace;">
                             <span
-                              class="score-badge"
-                              style="
-                                display: inline-block;
-                                padding: 0.25rem 0.5rem;
-                                background: var(--pico-background-color);
-                                border-radius: 0.25rem;
-                                font-weight: 600;
-                              "
+                              class="px-3 py-2 rounded"
+                              style="display: inline-block; background: var(--pico-background-color); font-weight: 600;"
                               title={`Recency: ${formatScore(track.recencyWeight)} | Fallback: ${formatScore(track.fallbackScore)}`}
                             >
                               {formatScore(track.score)}
@@ -352,7 +426,7 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
                   </tbody>
                 </table>
               </div>
-              <p style="margin-top: 1rem; font-size: 0.875rem; color: var(--pico-muted-color);">
+              <p class="text-muted-sm mt-5">
                 💡 <strong>Tip:</strong> Hover over tracks to see detailed score breakdowns and full genre lists
               </p>
             </>
@@ -361,7 +435,7 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
 
         {/* Recent Generation History */}
         {recentJobs.length > 0 && (
-          <section style="margin-top: 2rem;">
+          <section class="mt-6">
             <h3>Recent Generation History</h3>
             <table>
               <thead>
@@ -386,7 +460,7 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
                         </span>
                       </td>
                       <td>{duration ? duration + 's' : job.status === 'running' ? '...' : '-'}</td>
-                      <td style="color: var(--pico-del-color); font-size: 0.875rem;">
+                      <td class="text-sm" style="color: var(--pico-del-color);">
                         {job.error || '-'}
                       </td>
                     </tr>
@@ -397,8 +471,20 @@ export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element 
           </section>
         )}
 
-        <script src="/js/playlist-detail.js"></script>
-      </div>
+      <script src="/js/playlist-detail.js"></script>
+    </div>
+  );
+}
+
+/**
+ * Full playlist detail page with layout (for regular requests)
+ */
+export function PlaylistDetailPage(props: PlaylistDetailPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title={contentProps.playlist.title || contentProps.playlist.window} page={page} setupComplete={setupComplete}>
+      <PlaylistDetailContent {...contentProps} />
     </Layout>
   );
 }

@@ -91,7 +91,7 @@ describe('candidateFromTrack', () => {
     expect(candidate.lastPlayedAt).toEqual(history.lastPlayedAt);
   });
 
-  it('calculates final score as 70% recency + 30% fallback', async () => {
+  it('calculates final score with Quick Win enhancements', async () => {
     const track = createMockTrack('123', 'Song', 'Artist', 'Album', 'Rock', 5, 25);
 
     // Use null lastPlayedAt to get recency weight of 1.0
@@ -102,10 +102,12 @@ describe('candidateFromTrack', () => {
 
     // Recency weight for null = 1.0
     // Fallback: 5 stars (1.0) + 25 plays (1.0) = 0.6*1.0 + 0.4*1.0 = 1.0
-    // Final: 0.7 * 1.0 + 0.3 * 1.0 = 0.7 + 0.3 = 1.0
+    // New Quick Win formula: 0.35*recency + 0.25*rating + 0.10*playCount + 0.15*genreScore + 0.10*moodScore
+    // = 0.35*1.0 + 0.25*1.0 + 0.10*1.0 + 0.15*0.5 + 0.10*0.5 = 0.825
+    // (genreScore and moodScore are 0.5 neutral when no targets provided, no time boost, energy, or spacing penalties without context)
     expect(candidate.recencyWeight).toBe(1.0);
     expect(candidate.fallbackScore).toBe(1.0);
-    expect(candidate.finalScore).toBeCloseTo(1.0, 10);
+    expect(candidate.finalScore).toBeCloseTo(0.825, 10);
   });
 
   it('handles null last played date', async () => {
@@ -166,13 +168,18 @@ describe('buildCandidateTracks', () => {
 
     const result = await buildCandidateTracks(history);
 
+    // Check that both tracks are present (order may vary based on scoring)
     expect(result).toHaveLength(2);
-    expect(result[0].ratingKey).toBe('1');
-    expect(result[0].title).toBe('Song A');
-    expect(result[0].playCount).toBe(10);
-    expect(result[1].ratingKey).toBe('2');
-    expect(result[1].title).toBe('Song B');
-    expect(result[1].playCount).toBe(5);
+    const ratingKeys = result.map(c => c.ratingKey);
+    expect(ratingKeys).toContain('1');
+    expect(ratingKeys).toContain('2');
+
+    const track1 = result.find(c => c.ratingKey === '1');
+    const track2 = result.find(c => c.ratingKey === '2');
+    expect(track1?.title).toBe('Song A');
+    expect(track1?.playCount).toBe(10);
+    expect(track2?.title).toBe('Song B');
+    expect(track2?.playCount).toBe(5);
   });
 
   it('sorts candidates by final score descending', async () => {

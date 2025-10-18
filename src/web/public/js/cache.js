@@ -173,8 +173,214 @@ async function syncAudioMuse() {
   }
 }
 
+/**
+ * Sync rated tracks to cache (quick sync for analytics)
+ */
+async function syncRatedTracks() {
+  const elements = {
+    button: document.getElementById('syncRatedTracksBtn'),
+    progressContainer: document.getElementById('track-cache-progress'),
+    progressBar: document.getElementById('track-cache-progress-bar'),
+    progressPercent: document.getElementById('track-cache-progress-percent'),
+    progressMessage: document.getElementById('track-cache-progress-message'),
+    progressEta: document.getElementById('track-cache-progress-eta'),
+    progressLabel: document.getElementById('track-cache-progress-label')
+  };
+
+  const btn = elements.button;
+  const status = document.getElementById('action-status');
+  const originalText = btn.innerHTML;
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Starting...';
+  elements.progressContainer.style.display = 'block';
+  elements.progressLabel.textContent = 'Syncing rated tracks...';
+
+  try {
+    // Start the sync
+    const response = await fetch('/actions/cache/sync-rated', { method: 'POST' });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start sync');
+    }
+
+    // Monitor progress via SSE
+    const jobId = data.jobId;
+    const eventSource = new EventSource(`/actions/jobs/${jobId}/stream`);
+
+    eventSource.onmessage = (event) => {
+      const job = JSON.parse(event.data);
+
+      if (job.progress) {
+        const progressPercent = job.progress.percent || 0;
+        elements.progressBar.value = progressPercent;
+        elements.progressPercent.textContent = Math.round(progressPercent) + '%';
+        elements.progressMessage.textContent = job.progress.message || 'Syncing...';
+        if (job.progress.eta) {
+          elements.progressEta.textContent = 'ETA: ' + job.progress.eta;
+        }
+      }
+
+      if (job.status === 'success') {
+        btn.innerHTML = '✓ Synced';
+        status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Rated tracks sync complete! Reloading...</p>';
+        eventSource.close();
+        setTimeout(() => window.location.reload(), 1500);
+      } else if (job.status === 'failed') {
+        btn.innerHTML = '✗ Failed';
+        btn.disabled = false;
+        status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+        elements.progressContainer.style.display = 'none';
+        eventSource.close();
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          status.innerHTML = '';
+        }, 5000);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      // Check final status
+      fetch(`/actions/jobs/${jobId}`)
+        .then(res => res.json())
+        .then(job => {
+          if (job.status === 'success') {
+            btn.innerHTML = '✓ Synced';
+            status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Rated tracks sync complete! Reloading...</p>';
+            setTimeout(() => window.location.reload(), 1500);
+          } else if (job.status === 'failed') {
+            btn.innerHTML = '✗ Failed';
+            btn.disabled = false;
+            status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+            elements.progressContainer.style.display = 'none';
+          }
+        })
+        .catch(() => {
+          btn.innerHTML = '✗ Failed';
+          btn.disabled = false;
+          elements.progressContainer.style.display = 'none';
+        });
+    };
+  } catch (err) {
+    btn.innerHTML = '✗ Failed';
+    btn.disabled = false;
+    status.innerHTML = '<p style="color: var(--pico-del-color);">✗ ' + err.message + '</p>';
+    elements.progressContainer.style.display = 'none';
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      status.innerHTML = '';
+    }, 3000);
+  }
+}
+
+/**
+ * Sync full track library to cache (background job with progress tracking)
+ */
+async function syncFullLibrary() {
+  const elements = {
+    button: document.getElementById('syncFullLibraryBtn'),
+    progressContainer: document.getElementById('track-cache-progress'),
+    progressBar: document.getElementById('track-cache-progress-bar'),
+    progressPercent: document.getElementById('track-cache-progress-percent'),
+    progressMessage: document.getElementById('track-cache-progress-message'),
+    progressEta: document.getElementById('track-cache-progress-eta'),
+    progressLabel: document.getElementById('track-cache-progress-label')
+  };
+
+  const btn = elements.button;
+  const status = document.getElementById('action-status');
+  const originalText = btn.innerHTML;
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Starting...';
+  elements.progressContainer.style.display = 'block';
+  elements.progressLabel.textContent = 'Syncing full track library...';
+
+  try {
+    // Start the sync
+    const response = await fetch('/actions/cache/sync-full', { method: 'POST' });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start sync');
+    }
+
+    // Monitor progress via SSE
+    const jobId = data.jobId;
+    const eventSource = new EventSource(`/actions/jobs/${jobId}/stream`);
+
+    eventSource.onmessage = (event) => {
+      const job = JSON.parse(event.data);
+
+      if (job.progress) {
+        const progressPercent = job.progress.percent || 0;
+        elements.progressBar.value = progressPercent;
+        elements.progressPercent.textContent = Math.round(progressPercent) + '%';
+        elements.progressMessage.textContent = job.progress.message || 'Syncing...';
+        if (job.progress.eta) {
+          elements.progressEta.textContent = 'ETA: ' + job.progress.eta;
+        }
+      }
+
+      if (job.status === 'success') {
+        btn.innerHTML = '✓ Synced';
+        status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Full library sync complete! Reloading...</p>';
+        eventSource.close();
+        setTimeout(() => window.location.reload(), 1500);
+      } else if (job.status === 'failed') {
+        btn.innerHTML = '✗ Failed';
+        btn.disabled = false;
+        status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+        elements.progressContainer.style.display = 'none';
+        eventSource.close();
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          status.innerHTML = '';
+        }, 5000);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      // Check final status
+      fetch(`/actions/jobs/${jobId}`)
+        .then(res => res.json())
+        .then(job => {
+          if (job.status === 'success') {
+            btn.innerHTML = '✓ Synced';
+            status.innerHTML = '<p style="color: var(--pico-ins-color);">✓ Full library sync complete! Reloading...</p>';
+            setTimeout(() => window.location.reload(), 1500);
+          } else if (job.status === 'failed') {
+            btn.innerHTML = '✗ Failed';
+            btn.disabled = false;
+            status.innerHTML = `<p style="color: var(--pico-del-color);">✗ Sync failed: ${job.error || 'Unknown error'}</p>`;
+            elements.progressContainer.style.display = 'none';
+          }
+        })
+        .catch(() => {
+          btn.innerHTML = '✗ Failed';
+          btn.disabled = false;
+          elements.progressContainer.style.display = 'none';
+        });
+    };
+  } catch (err) {
+    btn.innerHTML = '✗ Failed';
+    btn.disabled = false;
+    status.innerHTML = '<p style="color: var(--pico-del-color);">✗ ' + err.message + '</p>';
+    elements.progressContainer.style.display = 'none';
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      status.innerHTML = '';
+    }, 3000);
+  }
+}
+
 // Expose functions globally
 window.warmCache = warmCache;
 window.warmAlbumCache = warmAlbumCache;
 window.confirmClearAll = confirmClearAll;
 window.syncAudioMuse = syncAudioMuse;
+window.syncRatedTracks = syncRatedTracks;
+window.syncFullLibrary = syncFullLibrary;

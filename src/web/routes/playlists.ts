@@ -11,6 +11,8 @@ import { desc, eq } from 'drizzle-orm';
 import { TIME_WINDOWS } from '../../windows.js';
 import { getGenreSummary, getMoodSummary } from '../../config/genre-discovery.js';
 import { getPlaylistRecommendations } from '../../playlist/recommendations.js';
+import { isHtmxRequest, withOobSidebar } from '../middleware/htmx.js';
+import { hasThrowbackHistory } from '../../playlist/throwback.js';
 
 export const playlistsRouter = Router();
 
@@ -73,7 +75,11 @@ playlistsRouter.get('/', async (req, res) => {
         .map(p => p.window)
     );
 
+    // Check if throwback history is available (1+ year old plays)
+    const throwbackAvailable = await hasThrowbackHistory();
+
     // Create list of special playlists to show (existing + missing)
+    // Only include throwback if sufficient historical data exists
     const specialPlaylistDefs = [
       {
         window: 'discovery',
@@ -81,29 +87,49 @@ playlistsRouter.get('/', async (req, res) => {
         description: 'Forgotten gems from your library (90+ days unplayed)',
         exists: existingSpecialWindows.has('discovery')
       },
-      {
+      ...(throwbackAvailable ? [{
         window: 'throwback',
         title: '⏪ Throwback',
         description: 'Nostalgic favorites from 2-5 years ago',
         exists: existingSpecialWindows.has('throwback')
-      }
+      }] : [])
     ];
 
-    // Render TSX component
-    const { PlaylistsIndexPage } = await import(getViewPath('playlists/index.tsx'));
-    const html = PlaylistsIndexPage({
+    const data = {
       playlists: enrichedPlaylists,
       dailyPlaylists: enrichedPlaylists.filter(p => p.category === 'daily'),
       specialPlaylists: enrichedPlaylists.filter(p => p.category === 'special'),
       customPlaylists: enrichedPlaylists.filter(p => p.category === 'custom'),
       specialPlaylistDefs,
-      totalTracks: allPlaylists.reduce((sum, p) => sum + p.trackCount, 0),
-      setupComplete,
-      page: 'playlists'
-    });
+      totalTracks: allPlaylists.reduce((sum, p) => sum + p.trackCount, 0)
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { PlaylistsIndexContent } = await import(getViewPath('playlists/index.tsx'));
+      const content = PlaylistsIndexContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'playlists',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { PlaylistsIndexPage } = await import(getViewPath('playlists/index.tsx'));
+      const html = PlaylistsIndexPage({
+        ...data,
+        setupComplete,
+        page: 'playlists'
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Playlists page error:', error);
     res.status(500).send('Internal server error');
@@ -146,18 +172,38 @@ playlistsRouter.get('/builder', async (req, res) => {
       .filter(([, count]) => count >= 3)
       .map(([mood]) => mood);
 
-    // Render TSX component
-    const { PlaylistBuilderPage } = await import(getViewPath('playlists/builder.tsx'));
-    const html = PlaylistBuilderPage({
+    const data = {
       customPlaylists: parsedPlaylists,
       availableGenres,
-      availableMoods,
-      setupComplete,
-      page: 'playlists'
-    });
+      availableMoods
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { PlaylistBuilderContent } = await import(getViewPath('playlists/builder.tsx'));
+      const content = PlaylistBuilderContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'playlists',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { PlaylistBuilderPage } = await import(getViewPath('playlists/builder.tsx'));
+      const html = PlaylistBuilderPage({
+        ...data,
+        setupComplete,
+        page: 'playlists'
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Playlist builder page error:', error);
     res.status(500).send('Internal server error');
@@ -188,7 +234,7 @@ playlistsRouter.post('/builder', async (req, res) => {
     const db = getDb();
 
     // Insert new playlist
-    await db.insert(customPlaylists).values({
+    const result = await db.insert(customPlaylists).values({
       name: name.trim(),
       genres: JSON.stringify(genres),
       moods: JSON.stringify(moods),
@@ -196,9 +242,22 @@ playlistsRouter.post('/builder', async (req, res) => {
       description: description || null,
       scoringStrategy: scoringStrategy || 'quality',
       enabled: true
-    });
+    }).returning({ id: customPlaylists.id });
 
-    res.json({ success: true, message: 'Playlist created successfully' });
+    // Get the ID of the newly created playlist
+    const playlistId = result[0].id;
+
+    // Trigger generation in background (fire-and-forget)
+    const { generateCustomPlaylist } = await import('../../playlist/custom-playlist-runner.js');
+    generateCustomPlaylist({ playlistId })
+      .then(() => {
+        console.log(`Custom playlist ${playlistId} generated successfully`);
+      })
+      .catch(err => {
+        console.error(`Custom playlist ${playlistId} generation failed:`, err);
+      });
+
+    res.json({ success: true, message: 'Playlist created and generation started' });
   } catch (error) {
     console.error('Create playlist error:', error);
     res.status(500).json({ error: 'Failed to create playlist' });
@@ -321,11 +380,75 @@ playlistsRouter.delete('/builder/:id', async (req, res) => {
 
     const db = getDb();
 
+    // Get custom playlist details before deleting
+    const customPlaylist = await db
+      .select()
+      .from(customPlaylists)
+      .where(eq(customPlaylists.id, playlistId))
+      .limit(1);
+
+    if (customPlaylist.length === 0) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+
+    console.log(`Deleting custom playlist: ${customPlaylist[0].name} (ID: ${playlistId})`);
+
+    // Generate window identifier for generated playlists
+    const nameSlug = customPlaylist[0].name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const windowId = `custom-${nameSlug}`;
+
+    // Find all generated playlists with this window
+    const generatedPlaylists = await db
+      .select()
+      .from(playlists)
+      .where(eq(playlists.window, windowId));
+
+    console.log(`Found ${generatedPlaylists.length} generated playlist(s) to delete`);
+
+    // Delete generated playlists and their tracks
+    let plexDeleteFailures = 0;
+    for (const playlist of generatedPlaylists) {
+      // Delete from Plex if it exists (with timeout to prevent hanging)
+      if (playlist.plexRatingKey) {
+        try {
+          const { deletePlaylist } = await import('../../plex/playlists.js');
+          await Promise.race([
+            deletePlaylist(playlist.plexRatingKey),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Plex delete timeout')), 5000))
+          ]);
+          console.log(`Deleted playlist from Plex: ${playlist.plexRatingKey}`);
+        } catch (error) {
+          plexDeleteFailures++;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.warn(`Failed to delete playlist ${playlist.plexRatingKey} from Plex (${errorMsg}), continuing with database cleanup`);
+          // Continue with database deletion even if Plex deletion fails
+        }
+      }
+
+      // Delete tracks first (foreign key constraint)
+      await db
+        .delete(playlistTracks)
+        .where(eq(playlistTracks.playlistId, playlist.id));
+      console.log(`Deleted tracks for playlist ${playlist.id}`);
+
+      // Delete playlist
+      await db
+        .delete(playlists)
+        .where(eq(playlists.id, playlist.id));
+      console.log(`Deleted playlist ${playlist.id} from database`);
+    }
+
+    // Delete custom playlist definition
     await db
       .delete(customPlaylists)
       .where(eq(customPlaylists.id, playlistId));
+    console.log(`Deleted custom playlist definition ${playlistId}`);
 
-    res.json({ success: true });
+    const message = plexDeleteFailures > 0
+      ? `Playlist deleted from database (${plexDeleteFailures} Plex deletion(s) failed - playlists may have already been removed)`
+      : 'Playlist deleted successfully';
+
+    res.json({ success: true, message });
   } catch (error) {
     console.error('Delete playlist error:', error);
     res.status(500).json({ error: 'Failed to delete playlist' });
@@ -431,9 +554,7 @@ playlistsRouter.get('/:id', async (req, res) => {
       });
     }
 
-    // Render TSX component
-    const { PlaylistDetailPage } = await import(getViewPath('playlists/detail.tsx'));
-    const html = PlaylistDetailPage({
+    const data = {
       playlist: playlist[0],
       tracks,
       recentJobs,
@@ -445,17 +566,39 @@ playlistsRouter.get('/:id', async (req, res) => {
         genres: JSON.parse(customPlaylistData.genres),
         moods: JSON.parse(customPlaylistData.moods)
       } : null,
-      setupComplete,
-      page: 'playlists',
       breadcrumbs: [
         { label: 'Dashboard', url: '/' },
         { label: 'Playlists', url: '/playlists' },
         { label: playlist[0].title || playlist[0].window, url: null }
       ]
-    });
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { PlaylistDetailContent } = await import(getViewPath('playlists/detail.tsx'));
+      const content = PlaylistDetailContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'playlists',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { PlaylistDetailPage } = await import(getViewPath('playlists/detail.tsx'));
+      const html = PlaylistDetailPage({
+        ...data,
+        setupComplete,
+        page: 'playlists'
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Playlist detail error:', error);
     res.status(500).send('Internal server error');
@@ -486,13 +629,22 @@ playlistsRouter.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    // Delete from Plex if it exists
+    console.log(`Deleting generated playlist: ${playlist[0].title} (ID: ${playlistId}, window: ${playlist[0].window})`);
+
+    // Delete from Plex if it exists (with timeout to prevent hanging)
+    let plexDeleteFailed = false;
     if (playlist[0].plexRatingKey) {
       try {
         const { deletePlaylist } = await import('../../plex/playlists.js');
-        await deletePlaylist(playlist[0].plexRatingKey);
+        await Promise.race([
+          deletePlaylist(playlist[0].plexRatingKey),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Plex delete timeout')), 5000))
+        ]);
+        console.log(`Deleted playlist from Plex: ${playlist[0].plexRatingKey}`);
       } catch (error) {
-        console.warn('Failed to delete playlist from Plex:', error);
+        plexDeleteFailed = true;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`Failed to delete playlist ${playlist[0].plexRatingKey} from Plex (${errorMsg}), continuing with database cleanup`);
         // Continue with database deletion even if Plex deletion fails
       }
     }
@@ -501,13 +653,19 @@ playlistsRouter.delete('/:id', async (req, res) => {
     await db
       .delete(playlistTracks)
       .where(eq(playlistTracks.playlistId, playlistId));
+    console.log(`Deleted ${playlist[0].trackCount} track(s) for playlist ${playlistId}`);
 
     // Delete playlist
     await db
       .delete(playlists)
       .where(eq(playlists.id, playlistId));
+    console.log(`Deleted playlist ${playlistId} from database`);
 
-    res.json({ success: true, message: 'Playlist deleted successfully' });
+    const message = plexDeleteFailed
+      ? 'Playlist deleted from database (Plex deletion failed - playlist may have already been removed)'
+      : 'Playlist deleted successfully';
+
+    res.json({ success: true, message });
   } catch (error) {
     console.error('Delete playlist error:', error);
     res.status(500).json({ error: 'Failed to delete playlist' });

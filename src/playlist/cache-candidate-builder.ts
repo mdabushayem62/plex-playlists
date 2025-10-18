@@ -121,7 +121,7 @@ export async function buildCandidatesFromCache(
     }
 
     // Use specified scoring strategy
-    const scoringResult = calculateScore(scoringStrategy, {
+    const scoringResult = await calculateScore(scoringStrategy, {
       userRating: cached.userRating || undefined,
       playCount: cached.viewCount || 0,
       lastPlayedAt: cached.lastViewedAt,
@@ -234,12 +234,12 @@ export async function buildQualityCandidatesFromCache(
  * Convert cache record to CandidateTrack (when Track object already available)
  * Useful for batch processing
  */
-export function candidateFromCacheRecord(
+export async function candidateFromCacheRecord(
   cached: TrackCacheRecord,
   track: Track,
   scoringStrategy: ScoringStrategy = 'quality'
-): CandidateTrack {
-  const scoringResult = calculateScore(scoringStrategy, {
+): Promise<CandidateTrack> {
+  const scoringResult = await calculateScore(scoringStrategy, {
     userRating: cached.userRating || undefined,
     playCount: cached.viewCount || 0,
     lastPlayedAt: cached.lastViewedAt,

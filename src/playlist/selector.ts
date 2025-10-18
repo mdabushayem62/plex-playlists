@@ -2,6 +2,9 @@ import { APP_ENV } from '../config.js';
 import { logger } from '../logger.js';
 import type { PlaylistWindow } from '../windows.js';
 import type { CandidateTrack } from './candidate-builder.js';
+import { getGenreSimilarityService } from '../metadata/genre-similarity.js';
+import { getTotalTrackCount, hasEnabledDiscoveryPlaylist } from '../db/repository.js';
+import { getRecentSkipRate } from '../adaptive/adaptive-repository.js';
 
 export interface SelectionContext {
   targetCount: number;
@@ -16,14 +19,15 @@ export interface SelectionResult {
   remaining: CandidateTrack[];
 }
 
-const selectWithConstraints = (
+const selectWithConstraints = async (
   candidates: CandidateTrack[],
   context: SelectionContext,
-  { enforceGenreLimit, enforceArtistLimit }: { enforceGenreLimit: boolean; enforceArtistLimit: boolean }
-): CandidateTrack[] => {
+  { enforceGenreLimit, enforceArtistLimit }: { enforceGenreLimit: boolean; enforceArtistLimit: boolean },
+  genreFamilyMap: Map<string, string>
+): Promise<CandidateTrack[]> => {
   const selected: CandidateTrack[] = [];
   const artistCounts = new Map<string, number>();
-  const genreCounts = new Map<string, number>();
+  const genreFamilyCounts = new Map<string, number>(); // Count by genre family, not individual genre
   const exclude = context.excludeRatingKeys ?? new Set<string>();
 
   const maxGenreCount = Math.floor(context.targetCount * APP_ENV.MAX_GENRE_SHARE);
@@ -49,8 +53,10 @@ const selectWithConstraints = (
     }
 
     if (enforceGenreLimit && candidate.genre) {
-      const genreCount = genreCounts.get(candidate.genre) ?? 0;
-      if (genreCount >= maxGenreCount) {
+      // Map genre to its family representative
+      const genreFamily = genreFamilyMap.get(candidate.genre.toLowerCase()) || candidate.genre.toLowerCase();
+      const familyCount = genreFamilyCounts.get(genreFamily) ?? 0;
+      if (familyCount >= maxGenreCount) {
         continue;
       }
     }
@@ -58,7 +64,8 @@ const selectWithConstraints = (
     selected.push(candidate);
     artistCounts.set(candidate.artist, (artistCounts.get(candidate.artist) ?? 0) + 1);
     if (candidate.genre) {
-      genreCounts.set(candidate.genre, (genreCounts.get(candidate.genre) ?? 0) + 1);
+      const genreFamily = genreFamilyMap.get(candidate.genre.toLowerCase()) || candidate.genre.toLowerCase();
+      genreFamilyCounts.set(genreFamily, (genreFamilyCounts.get(genreFamily) ?? 0) + 1);
     }
   }
 
@@ -197,11 +204,72 @@ const selectExplorationTracks = (
   return exploration;
 };
 
-export const selectPlaylistTracks = (
+/**
+ * Calculate dynamic exploration rate based on library context
+ * Returns a value between 0.10 (10%) and 0.20 (20%)
+ *
+ * Formula:
+ * - Baseline: 15%
+ * - +3% if library >10k tracks (more to explore)
+ * - +3% if skip rate >30% (user wants variety)
+ * - -3% if has enabled discovery playlist (dedicated discovery exists)
+ * - Clamped to [10%, 20%]
+ *
+ * @returns Exploration rate as decimal (0.10-0.20)
+ */
+export const calculateExplorationRate = async (): Promise<number> => {
+  let rate = 0.15; // Baseline 15%
+
+  try {
+    // Get library size
+    const librarySize = await getTotalTrackCount();
+
+    // Get recent skip rate (0-1 decimal)
+    const skipRate = await getRecentSkipRate();
+
+    // Check if has discovery playlist
+    const hasDiscovery = await hasEnabledDiscoveryPlaylist();
+
+    // Adjust rate based on context
+    if (librarySize > 10000) {
+      rate += 0.03; // +3% for large libraries
+    }
+
+    if (skipRate > 0.30) {
+      rate += 0.03; // +3% for high skip rate
+    }
+
+    if (hasDiscovery) {
+      rate -= 0.03; // -3% if has dedicated discovery playlist
+    }
+
+    // Clamp to [10%, 20%]
+    rate = Math.max(0.10, Math.min(rate, 0.20));
+
+    logger.debug(
+      {
+        librarySize,
+        skipRate: skipRate.toFixed(2),
+        hasDiscovery,
+        calculatedRate: rate.toFixed(2)
+      },
+      'calculated dynamic exploration rate'
+    );
+  } catch (error) {
+    // If any error, fall back to baseline
+    logger.warn({ error }, 'failed to calculate dynamic exploration rate, using baseline');
+    rate = 0.15;
+  }
+
+  return rate;
+};
+
+export const selectPlaylistTracks = async (
   candidates: CandidateTrack[],
   context: SelectionContext
-): SelectionResult => {
-  const explorationRate = context.explorationRate ?? APP_ENV.EXPLORATION_RATE;
+): Promise<SelectionResult> => {
+  // Use provided override, otherwise calculate dynamic rate based on context
+  const explorationRate = context.explorationRate ?? await calculateExplorationRate();
   const numExplore = Math.floor(context.targetCount * explorationRate);
   const numExploit = context.targetCount - numExplore;
 
@@ -214,6 +282,25 @@ export const selectPlaylistTracks = (
       numExplore
     },
     'epsilon-greedy selection split'
+  );
+
+  // Build genre family map using Last.fm similarity
+  const genreSimilarityService = getGenreSimilarityService();
+  const allGenres = candidates
+    .map(c => c.genre)
+    .filter((g): g is string => g !== undefined);
+  const uniqueGenres = [...new Set(allGenres)];
+
+  logger.debug(
+    { uniqueGenres: uniqueGenres.length, window: context.window },
+    'building genre family map for similarity-based selection'
+  );
+
+  const genreFamilyMap = await genreSimilarityService.groupGenresIntoFamilies(uniqueGenres);
+
+  logger.debug(
+    { families: new Set(genreFamilyMap.values()).size, window: context.window },
+    'genre family map built'
   );
 
   const passes: Array<{ enforceGenreLimit: boolean; enforceArtistLimit: boolean }> = [
@@ -230,7 +317,7 @@ export const selectPlaylistTracks = (
   const exploitContext = { ...context, targetCount: numExploit };
 
   for (const pass of passes) {
-    const passSelection = selectWithConstraints(candidates, exploitContext, pass);
+    const passSelection = await selectWithConstraints(candidates, exploitContext, pass, genreFamilyMap);
     for (const item of passSelection) {
       if (exploited.length >= numExploit) {
         break;

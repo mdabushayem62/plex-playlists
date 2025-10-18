@@ -1,10 +1,22 @@
 import { defineConfig } from 'vitest/config';
+import dotenv from 'dotenv';
+
+// Load .env for integration tests
+if (process.env.INTEGRATION === 'true') {
+  dotenv.config();
+}
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    env: {
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/dev-docs/**',
+    ],
+    // Only use test defaults if not running integration tests
+    env: process.env.INTEGRATION === 'true' ? {} : {
       PLEX_BASE_URL: 'http://localhost:32400',
       PLEX_AUTH_TOKEN: 'test-token',
       DATABASE_PATH: ':memory:',

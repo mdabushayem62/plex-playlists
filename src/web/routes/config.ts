@@ -22,8 +22,13 @@ import { getDb } from '../../db/index.js';
 import { setupState } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { getCacheStats } from '../../cache/cache-cli.js';
+import { isHtmxRequest, withOobSidebar } from '../middleware/htmx.js';
+import { configTabsRouter } from './config-tabs.js';
 
 export const configRouter = Router();
+
+// Mount tab API routes
+configRouter.use('/api', configTabsRouter);
 
 // Middleware to check setup status for navigation
 async function getSetupStatus() {
@@ -33,62 +38,15 @@ async function getSetupStatus() {
 }
 
 /**
- * Main configuration page - Overview dashboard
+ * Main configuration page - Settings with tabs
+ * (Overview removed - settings page is now the main config page)
  */
 configRouter.get('/', async (req, res) => {
   try {
     const setupComplete = await getSetupStatus();
 
-    // Build config object for overview page
-    const config = {
-      server: {
-        plexUrl: APP_ENV.PLEX_BASE_URL,
-        databasePath: APP_ENV.DATABASE_PATH,
-        webUiEnabled: APP_ENV.WEB_UI_ENABLED,
-        webUiPort: APP_ENV.WEB_UI_PORT
-      },
-      apis: {
-        lastfmConfigured: !!(await getSetting('lastfm_api_key') || APP_ENV.LASTFM_API_KEY),
-        spotifyConfigured: !!(
-          (await getSetting('spotify_client_id') || APP_ENV.SPOTIFY_CLIENT_ID) &&
-          (await getSetting('spotify_client_secret') || APP_ENV.SPOTIFY_CLIENT_SECRET)
-        )
-      },
-      scheduling: {
-        dailyPlaylists: await getSetting('daily_playlists_cron') || APP_ENV.DAILY_PLAYLISTS_CRON
-      },
-      scoring: {
-        halfLifeDays: parseFloat(await getSetting('half_life_days') || String(APP_ENV.HALF_LIFE_DAYS)),
-        maxGenreShare: parseFloat(await getSetting('max_genre_share') || String(APP_ENV.MAX_GENRE_SHARE)),
-        playlistTargetSize: parseInt(await getSetting('playlist_target_size') || String(APP_ENV.PLAYLIST_TARGET_SIZE)),
-        maxPerArtist: parseInt(await getSetting('max_per_artist') || String(APP_ENV.MAX_PER_ARTIST)),
-        historyDays: parseInt(await getSetting('history_days') || String(APP_ENV.HISTORY_DAYS)),
-        playCountSaturation: parseInt(await getSetting('play_count_saturation') || String(APP_ENV.PLAY_COUNT_SATURATION))
-      }
-    };
-
-    // Render TSX component
-    const { ConfigIndexPage } = await import(getViewPath('config/index.tsx'));
-    const html = ConfigIndexPage({
-      config,
-      page: 'config',
-      setupComplete
-    });
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error) {
-    console.error('Config index page error:', error);
-    res.status(500).send('Internal server error');
-  }
-});
-
-/**
- * Consolidated Settings Page - All configuration in one place
- */
-configRouter.get('/settings', async (req, res) => {
-  try {
-    const setupComplete = await getSetupStatus();
+    // Get active tab from query param or default to 'general'
+    const activeTab = (req.query.tab as string) || 'general';
 
     // Get all settings with metadata
     const allSettings = await getAllSettingsWithMetadata();
@@ -122,13 +80,8 @@ configRouter.get('/settings', async (req, res) => {
         return acc;
       }, {} as Record<string, typeof allSettings[keyof typeof allSettings]>);
 
-    // Get cache stats from cache service
-    const stats = await getCacheStats();
-    const cacheStats = {
-      total: stats.artists.totalEntries,
-      bySource: stats.artists.bySource,
-      expired: stats.artists.expired
-    };
+    // Get cache stats from cache service (all three types)
+    const cacheStats = await getCacheStats();
 
     // Get playlist config
     const configPath = getConfigFilePath('playlists.config.json');
@@ -151,9 +104,8 @@ configRouter.get('/settings', async (req, res) => {
       }
     };
 
-    // Render TSX component
-    const { SettingsPage } = await import('../views/config/settings.js');
-    const html = SettingsPage({
+    // Prepare data for rendering
+    const data = {
       plexSettings,
       apiSettings,
       scoringSettings,
@@ -162,12 +114,35 @@ configRouter.get('/settings', async (req, res) => {
       playlistConfig,
       configPath,
       envVars,
-      page: 'config',
-      setupComplete
-    });
+      activeTab
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { SettingsContent } = await import('../views/config/settings.js');
+      const content = await SettingsContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'config',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Render full page layout for regular requests
+      const { SettingsPage } = await import('../views/config/settings.js');
+      const html = SettingsPage({
+        ...data,
+        page: 'config',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Settings page error:', error);
     res.status(500).send('Internal server error');
@@ -607,21 +582,41 @@ configRouter.get('/adaptive', async (req, res) => {
     const { getAdaptiveStats } = await import('../../adaptive/adaptive-repository.js');
     const stats = await getAdaptiveStats();
 
-    // Render TSX component
-    const { AdaptiveSettingsPage } = await import(getViewPath('config/adaptive.tsx'));
-    const html = AdaptiveSettingsPage({
+    const data = {
       enabled: effectiveConfig.adaptiveQueueEnabled,
       sensitivity: effectiveConfig.adaptiveSensitivity,
       minSkips: effectiveConfig.adaptiveMinSkipCount,
       windowMinutes: effectiveConfig.adaptiveWindowMinutes,
       cooldownSeconds: effectiveConfig.adaptiveCooldownSeconds,
-      stats,
-      page: 'config',
-      setupComplete
-    });
+      stats
+    };
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    // Check if this is an HTMX request
+    if (isHtmxRequest(req)) {
+      // Return partial HTML for HTMX with OOB sidebar update
+      const { AdaptiveSettingsContent } = await import(getViewPath('config/adaptive.tsx'));
+      const content = AdaptiveSettingsContent(data);
+
+      // Combine content with OOB sidebar to update active state
+      const html = await withOobSidebar(content, {
+        page: 'config-adaptive',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } else {
+      // Return full page layout for regular requests
+      const { AdaptiveSettingsPage } = await import(getViewPath('config/adaptive.tsx'));
+      const html = AdaptiveSettingsPage({
+        ...data,
+        page: 'config-adaptive',
+        setupComplete
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    }
   } catch (error) {
     console.error('Adaptive settings page error:', error);
     res.status(500).send('Internal server error');

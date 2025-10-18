@@ -32,6 +32,10 @@ export type SettingKey =
   | 'exploration_rate'
   | 'exclusion_days'
   | 'discovery_days'
+  // Throwback Configuration
+  | 'throwback_lookback_start'
+  | 'throwback_lookback_end'
+  | 'throwback_recent_exclusion'
   // Genre Configuration
   | 'genre_ignore_list'
   // Scheduling
@@ -154,6 +158,11 @@ export async function getEffectiveConfig() {
     explorationRate: getNumber('exploration_rate', APP_ENV.EXPLORATION_RATE),
     exclusionDays: getNumber('exclusion_days', APP_ENV.EXCLUSION_DAYS),
     discoveryDays: getNumber('discovery_days', APP_ENV.DISCOVERY_DAYS),
+
+    // Throwback Configuration
+    throwbackLookbackStart: getNumber('throwback_lookback_start', APP_ENV.THROWBACK_LOOKBACK_START),
+    throwbackLookbackEnd: getNumber('throwback_lookback_end', APP_ENV.THROWBACK_LOOKBACK_END),
+    throwbackRecentExclusion: getNumber('throwback_recent_exclusion', APP_ENV.THROWBACK_RECENT_EXCLUSION),
 
     // Genre Configuration
     genreIgnoreList: getJsonArray('genre_ignore_list', []),
@@ -407,6 +416,47 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
       }
     },
 
+    // Throwback Configuration
+    throwback_lookback_start: {
+      key: 'throwback_lookback_start',
+      value: effectiveConfig.throwbackLookbackStart,
+      source: getSource('throwback_lookback_start'),
+      type: 'number',
+      category: 'playlists',
+      description: 'Start of throwback lookback window in days (e.g., 365 = 1 year ago)',
+      defaultValue: 730,
+      validation: {
+        min: 365,
+        max: 3650
+      }
+    },
+    throwback_lookback_end: {
+      key: 'throwback_lookback_end',
+      value: effectiveConfig.throwbackLookbackEnd,
+      source: getSource('throwback_lookback_end'),
+      type: 'number',
+      category: 'playlists',
+      description: 'End of throwback lookback window in days (e.g., 1825 = 5 years ago)',
+      defaultValue: 1825,
+      validation: {
+        min: 730,
+        max: 5475
+      }
+    },
+    throwback_recent_exclusion: {
+      key: 'throwback_recent_exclusion',
+      value: effectiveConfig.throwbackRecentExclusion,
+      source: getSource('throwback_recent_exclusion'),
+      type: 'number',
+      category: 'playlists',
+      description: 'Exclude tracks played within last N days from throwback',
+      defaultValue: 90,
+      validation: {
+        min: 30,
+        max: 365
+      }
+    },
+
     // Genre Configuration
     genre_ignore_list: {
       key: 'genre_ignore_list',
@@ -477,12 +527,12 @@ export async function getAllSettingsWithMetadata(): Promise<Record<string, Setti
     // Adaptive Queue
     adaptive_queue_enabled: {
       key: 'adaptive_queue_enabled',
-      value: effectiveConfig.adaptiveQueueEnabled,
+      value: effectiveConfig.adaptiveQueueEnabled ? 'true' : 'false',
       source: getSource('adaptive_queue_enabled'),
       type: 'boolean',
       category: 'adaptive',
       description: 'Enable real-time PlayQueue adaptation based on skip patterns (Beta)',
-      defaultValue: false
+      defaultValue: 'false'
     },
     adaptive_sensitivity: {
       key: 'adaptive_sensitivity',
@@ -555,6 +605,10 @@ export function validateSetting(key: SettingKey, value: string): { valid: boolea
     exploration_rate: v => !isNaN(v) && v >= 0.0 && v <= 1.0,
     exclusion_days: v => !isNaN(v) && v >= 1 && v <= 90,
     discovery_days: v => !isNaN(v) && v >= 1 && v <= 365,
+    // Throwback Configuration
+    throwback_lookback_start: v => !isNaN(v) && v >= 365 && v <= 3650,
+    throwback_lookback_end: v => !isNaN(v) && v >= 730 && v <= 5475,
+    throwback_recent_exclusion: v => !isNaN(v) && v >= 30 && v <= 365,
     // Adaptive Queue
     adaptive_sensitivity: v => !isNaN(v) && v >= 1 && v <= 10,
     adaptive_min_skip_count: v => !isNaN(v) && v >= 1 && v <= 5,

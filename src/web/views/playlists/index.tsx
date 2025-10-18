@@ -55,45 +55,45 @@ function timeAgo(date: Date): JSX.Element {
   return days + 'd ago';
 }
 
-function getPlaylistEmoji(window: string): JSX.Element {
+function getPlaylistEmoji(window: string): string {
   if (window === 'morning') return '🌅';
   if (window === 'afternoon') return '☀️';
   if (window === 'evening') return '🌙';
   return '🎵';
 }
 
-export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element {
+/**
+ * Playlists index content only (for HTMX partial rendering)
+ */
+export function PlaylistsIndexContent(props: Omit<PlaylistsIndexPageProps, 'page' | 'setupComplete'>) {
   const {
     playlists,
     dailyPlaylists,
     specialPlaylists,
     customPlaylists,
     specialPlaylistDefs,
-    totalTracks,
-    setupComplete,
-    page
+    totalTracks
   } = props;
 
   return (
-    <Layout title="Playlists" page={page} setupComplete={setupComplete}>
-      <div>
-        {/* Breadcrumbs */}
-        <nav aria-label="breadcrumb" style="margin-bottom: 1rem;">
-          <ol style="display: flex; list-style: none; padding: 0; gap: 0.5rem; font-size: 0.875rem; color: var(--pico-muted-color);">
-            <li><a href="/">Dashboard</a></li>
-            <li>›</li>
-            <li><span style="color: var(--pico-contrast);">Playlists</span></li>
-          </ol>
-        </nav>
+    <div>
+      {/* Breadcrumbs */}
+      <nav aria-label="breadcrumb" class="mb-5">
+        <ol class="flex text-muted-sm p-0 gap-3" style="list-style: none;">
+          <li><a href="/">Dashboard</a></li>
+          <li>›</li>
+          <li><span style="color: var(--pico-contrast);">Playlists</span></li>
+        </ol>
+      </nav>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <div class="flex-between mb-5">
           <h2>Playlists</h2>
           <a href="/playlists/builder" role="button" class="secondary">🎨 Create Custom Playlist</a>
         </div>
 
         {playlists.length === 0 ? (
-          <div style="background: var(--pico-card-background-color); padding: 2rem; border-radius: 0.5rem; text-align: center;">
-            <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
+          <div class="card p-6 rounded-lg text-center">
+            <p class="text-muted mb-5">
               No playlists generated yet.
             </p>
             <a href="/playlists/builder" role="button">🎨 Create Your First Playlist</a>
@@ -101,19 +101,19 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
         ) : (
           <>
             {/* Search/Filter */}
-            <div style="margin-bottom: 2rem;">
+            <div class="mb-5">
               <input
                 type="search"
                 id="playlistSearch"
                 placeholder="🔍 Search playlists by name or window..."
                 oninput="filterPlaylists(this.value)"
-                style="margin-bottom: 0;"
+                class="m-0"
               />
-              <small id="searchResults" style="color: var(--pico-muted-color);"></small>
+              <small id="searchResults" class="text-muted"></small>
             </div>
 
             {/* Overview Stats */}
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            <div class="grid-auto-wide gap-4 mb-5">
               <div class="stat-card">
                 <h3>{playlists.length}</h3>
                 <p>Total Playlists</p>
@@ -138,154 +138,182 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
 
             {/* Daily Playlists Section */}
             {dailyPlaylists.length > 0 && (
-              <section style="margin-bottom: 3rem;">
+              <section class="mb-6">
                 <h3>Daily Playlists</h3>
-                <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
+                <p class="text-muted mb-5">
                   Time-based playlists generated from your listening patterns throughout the day.
                 </p>
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
-                  {dailyPlaylists.map(playlist => (
-                    <article style="margin-bottom: 0;">
-                      <header>
-                        <h4 style="margin: 0;">
-                          <a href={`/playlists/${playlist.id}`} style="text-decoration: none; color: inherit;">
-                            {playlist.title || playlist.window}
-                          </a>
-                        </h4>
-                      </header>
-                      <div style="padding: 0.5rem 0;">
-                        <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-                          <strong>{playlist.trackCount}</strong> tracks
-                        </p>
-                        <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-                          Updated {timeAgo(playlist.generatedAt)}
-                        </p>
-                        {playlist.lastJob && playlist.lastJob.status === 'failed' && (
-                          <p style="margin: 0.5rem 0 0 0; color: var(--pico-del-color); font-size: 0.875rem;">
-                            ⚠️ Last generation failed
-                          </p>
-                        )}
-                      </div>
-                      <footer style="display: flex; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--pico-muted-border-color);">
-                        <a href={`/playlists/${playlist.id}`} role="button" class="secondary" style="flex: 1; margin: 0;">
-                          View Tracks
-                        </a>
-                        <button
-                          hx-post={`/actions/generate/${playlist.window}`}
-                          hx-swap="none"
-                          class="outline"
-                          style="flex: 0; margin: 0;"
-                          title="Regenerate playlist"
-                          onclick={`showToast('Generating ${playlist.window} playlist...', 'info')`}
-                        >
-                          🔄
-                        </button>
-                      </footer>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Special Playlists Section */}
-            <section style="margin-bottom: 3rem;">
-              <h3>Special Playlists</h3>
-              <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
-                Discovery and throwback playlists that uncover hidden gems and nostalgic favorites.
-              </p>
-
-              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem;">
-                {specialPlaylistDefs.map(def => {
-                  const playlist = specialPlaylists.find(p => p.window === def.window);
-
-                  return (
-                    <article style="margin-bottom: 0;">
-                      <header>
-                        <h4 style="margin: 0;">
-                          {playlist ? (
-                            <a href={`/playlists/${playlist.id}`} style="text-decoration: none; color: inherit;">
-                              {def.title}
-                            </a>
-                          ) : (
-                            <span>{def.title}</span>
-                          )}
-                        </h4>
-                      </header>
-                      <div style="padding: 0.5rem 0;">
-                        <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-                          {def.description}
-                        </p>
-                        {playlist ? (
-                          <>
-                            <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-                              <strong>{playlist.trackCount}</strong> tracks
-                            </p>
-                            <p style="margin: 0.25rem 0; color: var(--pico-muted-color); font-size: 0.875rem;">
-                              Updated {timeAgo(playlist.generatedAt)}
-                            </p>
-                            {playlist.lastJob && playlist.lastJob.status === 'failed' && (
-                              <p style="margin: 0.5rem 0 0 0; color: var(--pico-del-color); font-size: 0.875rem;">
-                                ⚠️ Last generation failed
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          <p style="margin: 0.5rem 0 0 0; color: var(--pico-muted-color); font-size: 0.875rem; font-style: italic;">
-                            Not generated yet
-                          </p>
-                        )}
-                      </div>
-                      <footer style="display: flex; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--pico-muted-border-color);">
-                        {playlist ? (
-                          <>
-                            <a href={`/playlists/${playlist.id}`} role="button" class="secondary" style="flex: 1; margin: 0;">
-                              View Tracks
-                            </a>
-                            <button
-                              hx-post={`/actions/generate/${def.window}`}
-                              hx-swap="none"
-                              class="outline"
-                              style="flex: 0; margin: 0;"
-                              title="Regenerate playlist"
-                              onclick={`showToast('Generating ${def.window} playlist...', 'info')`}
-                            >
-                              🔄
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            hx-post={`/actions/generate/${def.window}`}
-                            hx-swap="none"
-                            class="secondary"
-                            style="flex: 1; margin: 0;"
-                            onclick={`showToast('Generating ${def.window} playlist...', 'info')`}
-                          >
-                            Generate Now
-                          </button>
-                        )}
-                      </footer>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Custom Playlists Section */}
-            {customPlaylists.length > 0 && (
-              <section>
-                <h3>Custom Playlists</h3>
-                <p style="color: var(--pico-muted-color); margin-bottom: 1rem;">
-                  Genre and mood combination playlists you've created.
-                </p>
-
                 <table>
+                  <colgroup>
+                    <col style="width: 30%;" />
+                    <col style="width: 12%;" />
+                    <col style="width: 15%;" />
+                    <col style="width: 15%;" />
+                    <col style="width: 28%;" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Playlist</th>
                       <th>Tracks</th>
                       <th>Last Updated</th>
                       <th>Status</th>
-                      <th style="text-align: right;">Actions</th>
+                      <th class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyPlaylists.map(playlist => (
+                      <tr>
+                        <td>
+                          <a href={`/playlists/${playlist.id}`}>
+                            {playlist.title || `${getPlaylistEmoji(playlist.window)} ${playlist.window}`}
+                          </a>
+                        </td>
+                        <td>{playlist.trackCount}</td>
+                        <td>{timeAgo(playlist.generatedAt)}</td>
+                        <td>
+                          {playlist.lastJob ? (
+                            <span class={`status-badge status-${playlist.lastJob.status}`}>
+                              {playlist.lastJob.status}
+                            </span>
+                          ) : (
+                            <span class="text-muted-sm">-</span>
+                          )}
+                        </td>
+                        <td class="text-right">
+                          <div class="flex gap-3 justify-end">
+                            <button
+                              hx-post={`/actions/generate/${playlist.window}`}
+                              hx-swap="none"
+                              class="secondary m-0 text-sm"
+                              style="padding: 0.25rem 0.75rem;"
+                              title="Regenerate playlist"
+                              aria-label={`Regenerate ${playlist.window} playlist`}
+                              onclick={`showToast('Regenerating ${playlist.window} playlist...', 'info')`}
+                            >
+                              Regenerate
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
+            {/* Default Playlists Section */}
+            <section class="mb-6">
+              <h3>Default Playlists</h3>
+              <p class="text-muted mb-5">
+                Discovery and throwback playlists that uncover hidden gems and nostalgic favorites.
+              </p>
+
+              <table>
+                <colgroup>
+                  <col style="width: 30%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 15%;" />
+                  <col style="width: 15%;" />
+                  <col style="width: 28%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Playlist</th>
+                    <th>Tracks</th>
+                    <th>Last Updated</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {specialPlaylistDefs.map(def => {
+                    const playlist = specialPlaylists.find(p => p.window === def.window);
+
+                    return (
+                      <tr>
+                        <td>
+                          {playlist ? (
+                            <a href={`/playlists/${playlist.id}`} title={def.description}>
+                              {def.title}
+                            </a>
+                          ) : (
+                            <span title={def.description}>{def.title}</span>
+                          )}
+                        </td>
+                        <td>{playlist ? playlist.trackCount : '-'}</td>
+                        <td>{playlist ? timeAgo(playlist.generatedAt) : '-'}</td>
+                        <td>
+                          {playlist ? (
+                            playlist.lastJob ? (
+                              <span class={`status-badge status-${playlist.lastJob.status}`}>
+                                {playlist.lastJob.status}
+                              </span>
+                            ) : (
+                              <span class="text-muted-sm">-</span>
+                            )
+                          ) : (
+                            <span class="text-muted-sm" style="font-style: italic;">Not generated</span>
+                          )}
+                        </td>
+                        <td class="text-right">
+                          <div class="flex gap-3 justify-end">
+                            {playlist ? (
+                              <button
+                                hx-post={`/actions/generate/${def.window}`}
+                                hx-swap="none"
+                                class="secondary m-0 text-sm"
+                                style="padding: 0.25rem 0.75rem;"
+                                title="Regenerate playlist"
+                                aria-label={`Regenerate ${def.window} playlist`}
+                                onclick={`showToast('Regenerating ${def.window} playlist...', 'info')`}
+                              >
+                                Regenerate
+                              </button>
+                            ) : (
+                              <button
+                                hx-post={`/actions/generate/${def.window}`}
+                                hx-swap="none"
+                                class="secondary m-0 text-sm"
+                                style="padding: 0.25rem 0.75rem;"
+                                title="Generate playlist"
+                                aria-label={`Generate ${def.window} playlist`}
+                                onclick={`showToast('Generating ${def.window} playlist...', 'info')`}
+                              >
+                                Generate
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+
+            {/* Custom Playlists Section */}
+            {customPlaylists.length > 0 && (
+              <section>
+                <h3>Custom Playlists</h3>
+                <p class="text-muted mb-5">
+                  Genre and mood combination playlists you've created.
+                </p>
+
+                <table>
+                  <colgroup>
+                    <col style="width: 30%;" />
+                    <col style="width: 12%;" />
+                    <col style="width: 15%;" />
+                    <col style="width: 15%;" />
+                    <col style="width: 28%;" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Playlist</th>
+                      <th>Tracks</th>
+                      <th>Last Updated</th>
+                      <th>Status</th>
+                      <th class="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -305,16 +333,29 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
                             </span>
                           ) : '-'}
                         </td>
-                        <td style="text-align: right;">
-                          <button
-                            hx-post={`/actions/generate/${playlist.window}`}
-                            hx-swap="none"
-                            class="secondary"
-                            style="margin: 0; font-size: 0.875rem; padding: 0.25rem 0.75rem;"
-                            onclick={`showToast('Generating ${playlist.window} playlist...', 'info')`}
-                          >
-                            Regenerate
-                          </button>
+                        <td class="text-right">
+                          <div class="flex gap-3 justify-end">
+                            <button
+                              hx-post={`/actions/generate/${playlist.window}`}
+                              hx-swap="none"
+                              class="secondary m-0 text-sm"
+                              style="padding: 0.25rem 0.75rem;"
+                              title="Regenerate playlist"
+                              aria-label={`Regenerate ${playlist.window} playlist`}
+                              onclick={`showToast('Regenerating ${playlist.window} playlist...', 'info')`}
+                            >
+                              Regenerate
+                            </button>
+                            <button
+                              onclick={`deleteGeneratedPlaylist(${playlist.id}, '${playlist.title || playlist.window}')`}
+                              class="outline m-0 text-sm"
+                              style="padding: 0.25rem 0.75rem; color: var(--pico-del-color);"
+                              title="Delete playlist"
+                              aria-label="Delete playlist"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -325,8 +366,20 @@ export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element 
           </>
         )}
 
-        <script src="/js/playlists.js"></script>
-      </div>
+      <script src="/js/playlists.js"></script>
+    </div>
+  );
+}
+
+/**
+ * Full playlists index page with layout (for regular requests)
+ */
+export function PlaylistsIndexPage(props: PlaylistsIndexPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title="Playlists" page={page} setupComplete={setupComplete}>
+      <PlaylistsIndexContent {...contentProps} />
     </Layout>
   );
 }

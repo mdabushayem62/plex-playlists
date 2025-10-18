@@ -17,7 +17,7 @@ import { subDays } from 'date-fns';
 import type { HistoryResult } from '@ctrl/plex';
 import { getPlexServer } from '../plex/client.js';
 import { getDb } from '../db/index.js';
-import { artistCache } from '../db/schema.js';
+import { artistCache, customPlaylists } from '../db/schema.js';
 import { sql } from 'drizzle-orm';
 import { logger } from '../logger.js';
 import { APP_ENV } from '../config.js';
@@ -106,12 +106,49 @@ export async function getPlaylistRecommendations(): Promise<PlaylistRecommendati
     recommendations.push(...(await generateGenreCombos(filteredGenreStats, trackData, ignoreSet)));
     recommendations.push(...generateDiscoveryPlaylists(filteredGenreStats));
 
+    // Filter out playlists that already exist
+    const db = getDb();
+    const existingPlaylists = await db.select().from(customPlaylists);
+
+    const filteredRecommendations = recommendations.filter(rec => {
+      return !existingPlaylists.some(existing => {
+        // Check if names match (case-insensitive)
+        if (rec.name.toLowerCase() === existing.name.toLowerCase()) {
+          return true;
+        }
+
+        // Check if genre/mood combination matches
+        const existingGenres = JSON.parse(existing.genres) as string[];
+        const existingMoods = JSON.parse(existing.moods) as string[];
+
+        const genresMatch =
+          rec.genres.length === existingGenres.length &&
+          rec.genres.every(g => existingGenres.some(eg => eg.toLowerCase() === g.toLowerCase()));
+
+        const moodsMatch =
+          rec.moods.length === existingMoods.length &&
+          rec.moods.every(m => existingMoods.some(em => em.toLowerCase() === m.toLowerCase()));
+
+        return genresMatch && moodsMatch && (rec.genres.length > 0 || rec.moods.length > 0);
+      });
+    });
+
+    logger.debug(
+      {
+        totalRecommendations: recommendations.length,
+        existingPlaylists: existingPlaylists.length,
+        filteredOut: recommendations.length - filteredRecommendations.length,
+        remaining: filteredRecommendations.length
+      },
+      'filtered out existing playlists from recommendations'
+    );
+
     // Sort by score and take top 10
-    recommendations.sort((a, b) => b.score - a.score);
-    const topRecommendations = recommendations.slice(0, 10);
+    filteredRecommendations.sort((a, b) => b.score - a.score);
+    const topRecommendations = filteredRecommendations.slice(0, 10);
 
     logger.info(
-      { totalCandidates: recommendations.length, topRecommendations: topRecommendations.length, tracksAnalyzed: trackData.length },
+      { totalCandidates: filteredRecommendations.length, topRecommendations: topRecommendations.length, tracksAnalyzed: trackData.length },
       'generated playlist recommendations'
     );
 
@@ -399,8 +436,14 @@ function generateFavoriteGenrePlaylists(genreStats: GenreStats[]): PlaylistRecom
       1
     );
 
+    // Capitalize genre name for display (handles multi-word genres)
+    const genreName = genre.genre
+      .split(/[\s\-\/]+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
     recommendations.push({
-      name: genre.genre,
+      name: genreName,
       genres: [genre.genre],
       moods: [],
       targetSize: 50,
@@ -450,9 +493,20 @@ function generateMoodPlaylists(moodStats: MoodStats[]): PlaylistRecommendation[]
 
 /**
  * Generate genre combination playlists based on actual library composition
+ * Uses both co-occurrence and genre similarity for recommendations
  */
 async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackData[], ignoreSet: Set<string>): Promise<PlaylistRecommendation[]> {
   const recommendations: PlaylistRecommendation[] = [];
+
+  // Load genre similarity service once for all checks
+  let similarityService;
+  try {
+    const { getGenreSimilarityService } = await import('../metadata/genre-similarity.js');
+    similarityService = getGenreSimilarityService();
+  } catch (error) {
+    logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'failed to load genre similarity service');
+    // Continue without similarity checks
+  }
 
   // Analyze genre co-occurrence in user's listening history
   const genrePairs = await analyzeGenreCooccurrence(trackData);
@@ -461,9 +515,9 @@ async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackDat
   const topGenres = genreStats.slice(0, 15);
   const genreMap = new Map(topGenres.map(g => [g.genre.toLowerCase(), g]));
 
-  // Find the best genre pairs based on co-occurrence and quality
-  // Filter out pairs where either genre is in the ignore list
-  const viablePairs = genrePairs
+  // 1. Co-occurrence based recommendations (traditional approach)
+  // Filter out pairs that are too similar - those should be single-genre playlists
+  let viablePairs = genrePairs
     .filter(pair => {
       // Skip if either genre is in ignore list
       if (ignoreSet.has(pair.genre1.toLowerCase()) || ignoreSet.has(pair.genre2.toLowerCase())) {
@@ -474,8 +528,23 @@ async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackDat
       const g2 = genreMap.get(pair.genre2.toLowerCase());
       return g1 && g2 && pair.cooccurrenceCount >= 3; // At least 3 tracks with both genres
     })
-    .sort((a, b) => b.cooccurrenceCount - a.cooccurrenceCount)
-    .slice(0, 5); // Top 5 combinations
+    .sort((a, b) => b.cooccurrenceCount - a.cooccurrenceCount);
+
+  // Filter out similar genre pairs if similarity service is available
+  if (similarityService) {
+    const filteredPairs = [];
+    for (const pair of viablePairs) {
+      const areSimilar = await similarityService.areGenresSimilar(pair.genre1, pair.genre2);
+      if (!areSimilar) {
+        // Only include pairs that are NOT similar (diverse combos)
+        filteredPairs.push(pair);
+      }
+    }
+    viablePairs = filteredPairs.slice(0, 3); // Top 3 diverse co-occurrence combinations
+    logger.debug({ originalPairs: genrePairs.length, afterSimilarityFilter: filteredPairs.length }, 'filtered similar genres from co-occurrence combos');
+  } else {
+    viablePairs = viablePairs.slice(0, 3);
+  }
 
   for (const pair of viablePairs) {
     const genre1 = genreMap.get(pair.genre1.toLowerCase())!;
@@ -501,6 +570,10 @@ async function generateGenreCombos(genreStats: GenreStats[], trackData: TrackDat
       category: 'combo'
     });
   }
+
+  // Note: We don't add similarity-based recommendations as separate combos
+  // Similar genres (like "heavy metal" + "power metal") should just be single-genre playlists
+  // Combos are for DIVERSE genre pairings that add variety to your listening
 
   return recommendations;
 }
@@ -645,8 +718,14 @@ function generateDiscoveryPlaylists(genreStats: GenreStats[]): PlaylistRecommend
       0.65
     );
 
+    // Capitalize genre name for display (handles multi-word genres)
+    const genreName = genre.genre
+      .split(/[\s\-\/]+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
     recommendations.push({
-      name: `Explore ${genre.genre}`,
+      name: `Explore ${genreName}`,
       genres: [genre.genre],
       moods: [],
       targetSize: 50,

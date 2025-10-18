@@ -26,11 +26,14 @@ export interface PlaylistBuilderPageProps {
   page: string;
 }
 
-export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Element {
-  const { customPlaylists, availableGenres, availableMoods, setupComplete, page } = props;
+/**
+ * Playlist builder content only (for HTMX partial rendering)
+ */
+export function PlaylistBuilderContent(props: Omit<PlaylistBuilderPageProps, 'page' | 'setupComplete'>) {
+  const { customPlaylists, availableGenres, availableMoods } = props;
 
   return (
-    <Layout title="Playlist Builder" page={page} setupComplete={setupComplete}>
+    <div>
       <style>{`
         .genre-mood-selector {
           display: flex;
@@ -119,10 +122,10 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
           </ol>
         </nav>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <div class="flex-between" style="margin-bottom: 2rem;">
           <div>
             <h2 style="margin-bottom: 0.5rem;">🎨 Playlist Builder</h2>
-            <p style="color: var(--pico-muted-color); margin: 0;">
+            <p class="text-muted m-0">
               Create custom playlists by combining genres and moods. Select up to 2 genres and 2 moods.
             </p>
           </div>
@@ -138,9 +141,9 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
         {/* Builder Form (Hidden by default) */}
         <div id="builder-form" class="playlist-builder-card creating">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="margin: 0;">New Custom Playlist</h3>
-            <button onclick="toggleBuilder()" class="outline" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">✗ Cancel</button>
+          <div class="flex-between" style="margin-bottom: 1rem;">
+            <h3 class="m-0">New Custom Playlist</h3>
+            <button onclick="toggleBuilder()" class="outline text-sm" style="padding: 0.25rem 0.75rem;">✗ Cancel</button>
           </div>
 
           <form id="create-playlist-form" onsubmit="createPlaylist(event)">
@@ -174,14 +177,14 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
               ))}
             </div>
             {availableGenres.length === 0 && (
-              <p style="color: var(--pico-muted-color); font-size: 0.875rem; margin-top: 0.5rem;">
+              <p class="text-muted-sm" style="margin-top: 0.5rem;">
                 No genres available. Run cache warming to populate genre data.
               </p>
             )}
 
             {/* Mood Selection */}
             <label style="margin-top: 1rem;">
-              Moods <small style="color: var(--pico-muted-color);">(Select 0-2)</small>
+              Moods <small class="text-muted">(Select 0-2)</small>
             </label>
             <div class="genre-mood-selector" id="mood-selector">
               {availableMoods.sort().map(mood => (
@@ -196,14 +199,14 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
               ))}
             </div>
             {availableMoods.length === 0 && (
-              <p style="color: var(--pico-muted-color); font-size: 0.875rem; margin-top: 0.5rem;">
+              <p class="text-muted-sm" style="margin-top: 0.5rem;">
                 No moods available. Moods come from Plex metadata.
               </p>
             )}
 
             {/* Target Size */}
             <label for="target-size" style="margin-top: 1rem;">
-              Target Size <small style="color: var(--pico-muted-color);">(Number of tracks)</small>
+              Target Size <small class="text-muted">(Number of tracks)</small>
             </label>
             <input
               type="number"
@@ -216,7 +219,7 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
             {/* Scoring Strategy */}
             <label for="scoring-strategy" style="margin-top: 1rem;">
-              Scoring Strategy <small style="color: var(--pico-muted-color);">(How tracks are ranked)</small>
+              Scoring Strategy <small class="text-muted">(How tracks are ranked)</small>
             </label>
             <select id="scoring-strategy" name="scoringStrategy">
               <option value="quality" selected>Quality - Focus on ratings and play count (recommended)</option>
@@ -224,7 +227,7 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
               <option value="discovery">Discovery - Surface forgotten gems</option>
               <option value="throwback">Throwback - Nostalgic tracks from the past</option>
             </select>
-            <small style="display: block; margin-top: 0.25rem; color: var(--pico-muted-color); font-size: 0.75rem;">
+            <small class="text-muted-xs" style="display: block; margin-top: 0.25rem;">
               💡 <strong>Quality</strong>: Prioritizes your highest-rated and most-played tracks.
               <strong>Balanced</strong>: Includes recently played favorites.
               <strong>Discovery</strong>: Surfaces long-forgotten tracks.
@@ -233,7 +236,7 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
             {/* Description */}
             <label for="description">
-              Description <small style="color: var(--pico-muted-color);">(Optional)</small>
+              Description <small class="text-muted">(Optional)</small>
             </label>
             <textarea
               id="description"
@@ -251,20 +254,20 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
         {/* Recommendations Section */}
         <section id="recommendations-section" style="margin-bottom: 3rem; display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div class="flex-between" style="margin-bottom: 1rem;">
             <div>
               <h3 style="margin-bottom: 0.5rem;">💡 Recommended Playlists</h3>
-              <p style="color: var(--pico-muted-color); margin: 0; font-size: 0.875rem;">
+              <p class="text-muted-sm m-0">
                 Based on your listening history, ratings, and library analysis
               </p>
             </div>
-            <button id="refresh-recommendations-btn" onclick="loadRecommendations()" class="outline" style="font-size: 0.875rem; padding: 0.375rem 0.75rem;">
+            <button id="refresh-recommendations-btn" onclick="loadRecommendations()" class="outline text-sm" style="padding: 0.375rem 0.75rem;">
               🔄 Refresh
             </button>
           </div>
 
           <div id="recommendations-loading" style="text-align: center; padding: 2rem;">
-            <p style="color: var(--pico-muted-color);">
+            <p class="text-muted">
               <span class="spinner" style="display: inline-block; width: 1rem; height: 1rem; border: 2px solid var(--pico-muted-color); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
               Analyzing your library...
             </p>
@@ -274,7 +277,7 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
           <div id="recommendations-error" style="display: none;">
             <div class="playlist-builder-card" style="border-color: var(--pico-del-color);">
-              <p style="color: var(--pico-del-color); margin: 0;">
+              <p class="m-0" style="color: var(--pico-del-color);">
                 Failed to load recommendations. Make sure you have enough cache data and listening history.
               </p>
             </div>
@@ -287,19 +290,19 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
           {customPlaylists.length === 0 ? (
             <div class="playlist-builder-card">
-              <p style="color: var(--pico-muted-color); margin: 0;">
+              <p class="text-muted m-0">
                 No custom playlists yet. Click "Create Playlist" to get started!
               </p>
             </div>
           ) : (
             <div style="display: flex; flex-direction: column; gap: 1rem;">
               {customPlaylists.map(playlist => (
-                <article class="playlist-builder-card" style="margin: 0;">
-                  <div style="display: flex; justify-content: space-between; align-items: start; gap: 1rem;">
+                <article class="playlist-builder-card m-0">
+                  <div class="flex-between" style="align-items: start; gap: 1rem;">
                     <div style="flex: 1;">
                       <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <h4 style="margin: 0;">{playlist.name}</h4>
-                        <span class={`status-badge ${playlist.enabled ? 'status-success' : 'status-muted'}`} style="font-size: 0.7rem;">
+                        <h4 class="m-0">{playlist.name}</h4>
+                        <span class={`status-badge ${playlist.enabled ? 'status-success' : 'status-muted'} text-xs`}>
                           {playlist.enabled ? 'enabled' : 'disabled'}
                         </span>
                       </div>
@@ -307,56 +310,61 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
                       {/* Genres & Moods */}
                       <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
                         {playlist.genres.map(genre => (
-                          <span style="padding: 0.25rem 0.5rem; background: var(--pico-primary); color: var(--pico-primary-inverse); border-radius: 0.25rem; font-size: 0.75rem;">
+                          <span class="text-xs" style="padding: 0.25rem 0.5rem; background: var(--pico-primary); color: var(--pico-primary-inverse); border-radius: 0.25rem;">
                             🎵 {genre}
                           </span>
                         ))}
                         {playlist.moods.map(mood => (
-                          <span style="padding: 0.25rem 0.5rem; background: var(--pico-ins-color); color: var(--pico-background-color); border-radius: 0.25rem; font-size: 0.75rem;">
+                          <span class="text-xs" style="padding: 0.25rem 0.5rem; background: var(--pico-ins-color); color: var(--pico-background-color); border-radius: 0.25rem;">
                             ✨ {mood}
                           </span>
                         ))}
                         {playlist.genres.length === 0 && playlist.moods.length === 0 && (
-                          <span style="color: var(--pico-muted-color); font-size: 0.875rem;">No filters</span>
+                          <span class="text-muted-sm">No filters</span>
                         )}
                       </div>
 
                       {/* Metadata */}
-                      <div style="display: flex; gap: 1rem; font-size: 0.875rem; color: var(--pico-muted-color); flex-wrap: wrap;">
+                      <div class="text-muted-sm" style="display: flex; gap: 1rem; flex-wrap: wrap;">
                         <span>Target: {playlist.targetSize} tracks</span>
                         <span>Strategy: <span style="text-transform: capitalize;">{playlist.scoringStrategy || 'quality'}</span></span>
                         <span>Created: {new Date(playlist.createdAt).toLocaleDateString()}</span>
                       </div>
 
                       {playlist.description && (
-                        <p style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--pico-muted-color);">
+                        <p class="text-muted-sm" style="margin-top: 0.5rem;">
                           {playlist.description}
                         </p>
                       )}
                     </div>
 
-                    <div style="display: flex; gap: 0.5rem;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end;">
                       <button
                         onclick={`togglePlaylist(${playlist.id}, ${!playlist.enabled})`}
-                        class="secondary action-btn"
-                        title={playlist.enabled ? 'Disable' : 'Enable'}
+                        class="secondary"
+                        title={playlist.enabled ? "Disable playlist" : "Enable playlist"}
+                        aria-label={playlist.enabled ? "Disable playlist" : "Enable playlist"}
+                        style="margin: 0; padding: 0.375rem 0.75rem; font-size: 0.875rem;"
                       >
-                        {playlist.enabled ? '⏸️' : '▶️'}
+                        {playlist.enabled ? '⏸️ Disable' : '▶️ Enable'}
                       </button>
                       <button
-                        onclick={`generatePlaylist(${playlist.id})`}
-                        class="secondary action-btn"
-                        title="Generate now"
+                        onclick={`generatePlaylist(${playlist.id}, event)`}
+                        class="secondary"
+                        title="Generate playlist now"
+                        aria-label="Generate playlist now"
+                        style="margin: 0; padding: 0.375rem 0.75rem; font-size: 0.875rem;"
                       >
-                        🔄
+                        🔄 Generate
                       </button>
                       <button
-                        onclick={`deletePlaylist(${playlist.id}, '${playlist.name}')`}
-                        class="outline action-btn"
-                        title="Delete"
-                        style="color: var(--pico-del-color);"
+                        onclick={`deletePlaylist(${playlist.id}, '${playlist.name}', event)`}
+                        class="outline"
+                        title="Delete playlist"
+                        aria-label="Delete playlist"
+                        style="margin: 0; padding: 0.375rem 0.75rem; font-size: 0.875rem; color: var(--pico-del-color);"
                       >
-                        🗑️
+                        🗑️ Delete
                       </button>
                     </div>
                   </div>
@@ -368,11 +376,11 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
 
         {/* Help Panel */}
         <div style="background: linear-gradient(135deg, rgba(74, 143, 201, 0.1) 0%, rgba(74, 143, 201, 0.05) 100%); border: 1px solid var(--pico-primary); border-radius: 0.5rem; padding: 1.5rem; margin-top: 2rem;">
-          <h4 style="margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.5rem;">
+          <h4 class="m-0" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 1.25rem;">💡</span>
             <span>How Custom Playlists Work</span>
           </h4>
-          <ul style="margin: 0; padding-left: 1.5rem;">
+          <ul class="m-0" style="padding-left: 1.5rem;">
             <li style="margin-bottom: 0.5rem;">
               <strong>Genres</strong> filter tracks by music style (from Spotify/Last.fm/Plex)
             </li>
@@ -390,9 +398,22 @@ export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Elemen
             </li>
           </ul>
         </div>
-      </div>
 
-      <script src="/js/playlist-builder.js"></script>
+        <script src="/js/playlist-builder.js"></script>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Full playlist builder page with layout (for regular requests)
+ */
+export function PlaylistBuilderPage(props: PlaylistBuilderPageProps): JSX.Element {
+  const { setupComplete, page, ...contentProps } = props;
+
+  return (
+    <Layout title="Playlist Builder" page={page} setupComplete={setupComplete}>
+      <PlaylistBuilderContent {...contentProps} />
     </Layout>
   );
 }
