@@ -1,174 +1,172 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Project Phase:** Prototype (late)
 
-**Brevity is the soul of wit.**
-
-## Project Overview
-
-A TypeScript-based automated Plex playlist generator that creates time-based daily playlists, weekly discovery/throwback playlists, and custom genre/mood playlists using exponential recency weighting, epsilon-greedy selection, and sonic similarity expansion.
-
-**For user-facing documentation:** See [docs/](docs/) directory.
+**Documentation Level:** Minimal. Code is truth. Document decisions and gotchas only.
 
 ---
 
-## Essential Commands
+## Core Constraints
 
-### Development
-```bash
-npm run dev              # Run with tsx (development mode)
-npm run build            # Build with tsup (ESM + CJS + .d.ts)
-npm run start            # Run compiled CLI
-npm run lint             # ESLint with max-warnings=0
-npm run test             # Run all tests with vitest
-npm run test:watch       # Run tests in watch mode
-```
-
-### CLI Usage
-```bash
-plex-playlists start              # Start scheduler (cron-based)
-plex-playlists run <window>       # Run single window (morning|afternoon|evening|discovery|throwback)
-plex-playlists run-all            # Run all three daily playlists sequentially
-plex-playlists run discovery      # Generate weekly discovery playlist
-plex-playlists run throwback      # Generate weekly throwback playlist
-```
-
-### Database
-```bash
-npx drizzle-kit generate          # Generate migrations (after schema changes)
-npx drizzle-kit studio            # Open Drizzle Studio
-# Note: Migrations run automatically on app startup
-```
-
-### Cache Management
-```bash
-plex-playlists cache warm [--dry-run] [--concurrency=N]
-                                  # Warm artist cache for all Plex artists
-                                  # Default concurrency: 2 (very conservative to avoid rate limits)
-                                  # Skips already-cached artists (incremental)
-                                  # Tracked in job_runs table
-plex-playlists cache stats        # Show cache statistics (total, by source, expiring)
-plex-playlists cache clear [--all]# Clear expired (or all) cache entries
-```
+**Type Safety:** error on any - Strict mode, use unknown for dynamic data
+**Test Coverage:** Critical paths only - 40-60% overall, unit tests for core logic
+**Breaking Changes:** Acceptable with migration - Document but ship
+**Performance:** No premature optimization - Profile before optimizing
 
 ---
 
-## Architecture Guide
+## Code Rules
 
-Domain-specific documentation for deep dives:
+### Naming
+- Functions: `verbNoun` - `getUserById`, `calculateScore` (not `get`, `calc`)
+- Types: PascalCase with suffix - `CandidateTrack`, `ScoringStrategy`
+- Files: kebab-case.ts - `playlist-runner.ts`, `candidate-builder.ts`
 
-### [Playlist Generation](src/playlist/CLAUDE.md)
-- Core pipeline (history → candidates → selection → Plex)
-- Scoring strategies (balanced, quality, discovery, throwback)
-- Discovery & throwback algorithms
-- Epsilon-greedy selection with constraints
-- Sonic expansion & fallback strategies
-
-### [Cache System](src/cache/CLAUDE.md)
-- Cache warming (artist, album, track)
-- Multi-source merging (Plex + Last.fm + Spotify)
-- TTL & jitter management
-- Incremental warming & auto-refresh
-- CLI vs Web vs Scheduler execution paths
-
-### [Database](src/db/CLAUDE.md)
-- Schema overview (playlists, caches, jobs, settings)
-- Migrations workflow
-- Repository patterns
-- Query examples
-- Performance optimization
-
-### [Job Queue](src/queue/CLAUDE.md)
-- CLI-first design principle
-- Background job queueing (p-queue, max 2 concurrent)
-- Progress tracking & SSE streaming
-- Cancellation via AbortSignal
-- Future extensions (retry, priorities, distributed)
-
-### [Metadata Providers](src/metadata/CLAUDE.md)
-- Provider hierarchy (Cache → Plex → Last.fm → Spotify)
-- Rate limiting strategies per provider
-- Multi-source merging details
-- Artist vs album enrichment
-- Concurrency configuration
-
-### [Web UI](src/web/CLAUDE.md)
-- Routes structure (dashboard, actions, playlists, config, analytics)
-- Views architecture (Kitajs/html TSX)
-- SSE for real-time progress
-- Form handling & progressive enhancement
-- Pico CSS styling patterns
-
----
-
-## Configuration
-
-All config via environment variables (validated with `envalid` in `config.ts`):
-
-**Required:**
-- `PLEX_BASE_URL`: Plex server URL
-- `PLEX_AUTH_TOKEN`: Plex X-Plex-Token
-
-**Optional:**
-- `DATABASE_PATH`: SQLite file path (default: `./data/plex-playlists.db`)
-- `LASTFM_API_KEY`: Last.fm API key (for genre enrichment)
-- `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`: Spotify API (for genre enrichment)
-- `AUDIOMUSE_DB_HOST`: AudioMuse PostgreSQL host (for audio features)
-
-**Full reference:** [docs/configuration-reference.md](docs/configuration-reference.md)
-
----
-
-## Import Patterns
-
-Uses ES modules with `.js` extensions in import paths (required for Node ESM):
-
+### Import Paths (Node ESM)
 ```typescript
-import { logger } from './logger.js';
-import type { PlaylistWindow } from './windows.js';
+import { logger } from './logger.js';         // ✅ Use .js extension
+import type { Window } from './windows.js';   // ✅ Even for types
+```
+TypeScript compiles `.ts` → `.js`, but imports must reference `.js`
+
+### Must
+- Validate at boundaries (API input, Plex API responses)
+- Handle errors explicitly (meaningful error messages, not "Error")
+- Use strict TypeScript (no `any` without TODO comment)
+- Return meaningful errors (not "Error 500")
+
+### Must Not
+- Throw errors without context
+- Use `any` without TODO comment explaining why
+- Commit `console.log` statements
+
+---
+
+## Testing Non-Negotiables
+
+### Always Test
+- Scoring algorithms (unit tests, various inputs)
+- Selection logic (epsilon-greedy, constraint relaxation)
+- Time calculations (window boundaries, date math)
+- Database migrations (up and down)
+
+### Never Test
+- Simple getters/setters
+- Framework glue code
+- Third-party library internals
+
+### Test Isolation
+- Unit: Pure functions, mock externals
+- Integration: Real SQLite with transactions
+- E2E: Optional, manual testing with real Plex
+
+**Pre-commit hook:** lint → test → build (all must pass)
+
+---
+
+## Critical Gotchas
+
+### Plex API Quirks
+**Audio playlists require `type: 'audio'`** - Not documented in @ctrl/plex, will fail silently otherwise
+**No playlist update API** - Must delete old playlist then create new (use `ratingKey` to find)
+**Summary field max 256 chars** - We use it for metadata, keep it short
+
+### Node ESM Import Gotcha
+**Extensions required** - `import './foo.js'` not `import './foo'`
+TypeScript won't warn you, but Node will crash at runtime. Hit this 5+ times.
+
+---
+
+## Common Workflow Commands
+
+### Development Loop
+```bash
+npm run dev              # tsx watch mode
+npm run test:watch       # Vitest watch mode
+npm run lint             # Fix before commit
 ```
 
-TypeScript compiles `.ts` → `.js`, but imports must reference `.js`.
+### Before Commit
+```bash
+npm run lint && npm test && npm run build
+# Or just commit - pre-commit hook runs this automatically
+```
+
+### Database Changes
+```bash
+# 1. Edit src/db/schema.ts
+npx drizzle-kit generate        # Generate migration
+# 2. Restart app - migrations run automatically
+npx drizzle-kit studio          # Verify in Drizzle Studio
+```
+
+### Testing Playlists Locally
+```bash
+npm run dev -- run morning      # Single playlist
+npm run dev -- run-all          # All three daily
+npm run dev -- cache warm       # Warm cache first for better results
+```
+
+### Plex Test Scripts
+ - Use import 'dotenv/config' for plex creds
+ - Temporary test scripts go in `scripts/test-*.*`
 
 ---
 
-## Testing
+## When You're Unsure
 
-Uses Vitest following testing pyramid principles:
-- **Unit tests (~90%)**: Selection logic, scoring algorithms, time calculations, aggregation
-- **Integration tests (~9%)**: Database migrations, Plex client interactions, caching, job tracking
-- **E2E (~1%)**: Optional staging Plex smoke tests
+**Prioritize:** Working over perfect, shipping over refactoring, removing code over adding abstractions
 
-All tests run automatically on commit via Husky pre-commit hooks (lint → test → build)
+**Refer to:**
+- Existing code patterns (prefer consistency)
+- Tests for expected behavior
+- Domain CLAUDE.md files for specific subsystems
+
+**Ask user about:**
+- Algorithm tuning (weights, thresholds, halflife)
+- Breaking changes to database schema
+- Removing features vs fixing bugs
+- Whether to add dependencies
+
+**Don't assume:**
+- Features work without verification
+- Tests cover everything
+- Documentation is up to date
+- Enterprise patterns belong in homelab tool
 
 ---
 
-## User Documentation
+## Domain-Specific Docs
 
-For user-facing documentation, refer users to:
-- [README.md](README.md) - Landing page with path chooser
-- [docs/docker-guide.md](docs/docker-guide.md) - Docker deployment guide
-- [docs/cli-guide.md](docs/cli-guide.md) - CLI installation and usage
-- [docs/configuration-reference.md](docs/configuration-reference.md) - All env vars
-- [docs/algorithm-explained.md](docs/algorithm-explained.md) - User-friendly algorithm explanation
-- [docs/troubleshooting.md](docs/troubleshooting.md) - Docker/CLI troubleshooting
-- [docs/importing.md](docs/importing.md) - Rating import guide
+Only 2 domain docs exist (rest deleted as premature):
+
+**[src/playlist/CLAUDE.md](src/playlist/CLAUDE.md)** - Playlist generation development patterns
+**[src/adaptive/CLAUDE.md](src/adaptive/CLAUDE.md)** - Adaptive playqueue (experimental)
+
+If you need to understand cache, DB, metadata, web UI, or queue - **read the code**. It's the source of truth.
 
 ---
 
-## Common Development Patterns
+## Work Tracking
 
-### Plex API Interactions
-- Client singleton: `getPlexServer()` in `plex/client.ts` (uses LRU cache)
-- Extend `@ctrl/plex` types as needed (e.g., audio playlist support)
-- Always use `ratingKey` as primary identifier (string format)
+This project uses the Agent Task Manager MCP for persistent task tracking and knowledge management.
 
-### Graceful Shutdown
-- SIGTERM/SIGINT handlers in `cli.ts:14-21`
-- Cleanly closes database and Plex connections
-- Safe for Docker stop/restart
+**First time using this MCP?** Read the `help://quickstart` resource to understand the workflow, effort calibration, and lesson extraction patterns.
 
-### Observability
-- **Structured Logging**: Playlist runner logs detailed metrics at each stage
-- **Job Tracking**: All runs recorded in `job_runs` table with start/finish times and status
-- **Query History**: `SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 10`
+**Task Manager:** All work tracked in Linear via MCP agent-task-manager
+- View tasks: `list_tasks` with filter `{"project": "plex-playlists"}`
+- Known issues, bugs, enhancements all tracked there
+- Single source of truth for "what needs doing"
+
+**Not tracked here:** Keeps CLAUDE.md focused on development rules, not project status
+
+**Quick reference:**
+- Tasks with effort ≥3 require uncertainties and decomposition
+- Use `update_task` before/after work to capture lessons and resolve uncertainties
+- Extract valuable lessons to the knowledge base with `extract_lesson`
+- Reference tasks by Linear key (e.g., NON-123)
+
+For detailed guidance, see:
+- `help://quickstart` - Core workflow and rules
+- `help://effort-calibration` - Choosing Fibonacci effort values
+- `help://tool-selection` - When to use list_tasks vs query_task

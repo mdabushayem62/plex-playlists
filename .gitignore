@@ -26,6 +26,12 @@ src/web/views/**/*.js
 !/data/imported_playlists/README.md
 !/data/imported_playlists/.gitkeep
 
+# SQLite database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
 # Environment variables
 .env
 .env.local
@@ -58,9 +64,20 @@ temp/
 *.tmp
 .venv
 
-# Ad-hoc test scripts (root level only)
-/test-*.ts
-/test-*.js
-/test-*.mjs
-/test-*.cjs
-/test-*.sh
+# Ad-hoc test scripts
+scripts/test-*.ts
+scripts/test-*.js
+scripts/test-*.mjs
+scripts/test-*.cjs
+scripts/test-*.sh
+scripts/TEST-*.md
+
+
+# Dev docs
+dev-docs/
+
+# MCP configuration (contains credentials)
+.mcp.json
+
+.memory/
+**/CLAUDE.md
