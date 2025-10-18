@@ -1,17 +1,20 @@
 /**
  * Database repository for adaptive queue operations
- * Phase 1: Basic stats queries
- * Phase 2+: Full session tracking, skip events, pattern analysis
+ * Provides queries for stats, session tracking, and failure metrics
  */
 
 import { getDb } from '../db/index.js';
 import {
   adaptiveSessions,
   adaptiveSkipEvents,
+  adaptiveCompletionEvents,
   adaptiveActions,
-  type AdaptiveSessionRecord
+  type AdaptiveSessionRecord,
+  type AdaptiveSkipEventRecord,
+  type AdaptiveActionRecord
 } from '../db/schema.js';
-import { sql } from 'drizzle-orm';
+import { sql, desc, eq } from 'drizzle-orm';
+import { getQueueTracker } from './queue-tracker.js';
 
 /**
  * Statistics for adaptive queue dashboard
@@ -94,7 +97,6 @@ export async function getAllSessions(): Promise<AdaptiveSessionRecord[]> {
 
 /**
  * Create or update session
- * Phase 2+
  */
 export async function upsertSession(
   machineIdentifier: string,
@@ -138,5 +140,100 @@ export async function upsertSession(
       .returning();
 
     return result[0].id;
+  }
+}
+
+/**
+ * Get recent skip events for a session
+ */
+export async function getRecentSkips(
+  sessionId: number,
+  limit = 50
+): Promise<AdaptiveSkipEventRecord[]> {
+  const db = getDb();
+
+  return await db
+    .select()
+    .from(adaptiveSkipEvents)
+    .where(eq(adaptiveSkipEvents.sessionId, sessionId))
+    .orderBy(desc(adaptiveSkipEvents.skippedAt))
+    .limit(limit);
+}
+
+/**
+ * Get recent adaptive actions for a session
+ */
+export async function getRecentActions(
+  sessionId: number,
+  limit = 50
+): Promise<AdaptiveActionRecord[]> {
+  const db = getDb();
+
+  return await db
+    .select()
+    .from(adaptiveActions)
+    .where(eq(adaptiveActions.sessionId, sessionId))
+    .orderBy(desc(adaptiveActions.createdAt))
+    .limit(limit);
+}
+
+/**
+ * Get queue discovery failure metrics
+ * Uses in-memory tracker, not persisted to database
+ */
+export function getQueueDiscoveryFailures(limit = 10) {
+  const tracker = getQueueTracker();
+  return tracker.getRecentFailures(limit);
+}
+
+/**
+ * Get queue tracker cache statistics
+ */
+export function getQueueTrackerStats() {
+  const tracker = getQueueTracker();
+  return tracker.getCacheStats();
+}
+
+/**
+ * Calculate recent skip rate from adaptive system data
+ * Returns skip rate as decimal 0-1 (e.g., 0.30 = 30%)
+ * Timeframe: Last 7 days
+ * Formula: skip_events / (skip_events + completion_events)
+ * Returns 0 if no data or adaptive tables don't exist
+ */
+export async function getRecentSkipRate(): Promise<number> {
+  const db = getDb();
+
+  try {
+    // Calculate timestamp for 7 days ago
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    // Count skip events in last 7 days
+    const skipCountResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(adaptiveSkipEvents)
+      .where(sql`${adaptiveSkipEvents.skippedAt} >= ${sevenDaysAgo}`);
+    const skipCount = skipCountResult[0]?.count || 0;
+
+    // Count completion events in last 7 days
+    const completionCountResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(adaptiveCompletionEvents)
+      .where(sql`${adaptiveCompletionEvents.completedAt} >= ${sevenDaysAgo}`);
+    const completionCount = completionCountResult[0]?.count || 0;
+
+    // Calculate total events
+    const totalEvents = skipCount + completionCount;
+
+    // If no events, return 0
+    if (totalEvents === 0) {
+      return 0;
+    }
+
+    // Calculate skip rate as decimal
+    return skipCount / totalEvents;
+  } catch {
+    // If tables don't exist yet or any error, return 0
+    return 0;
   }
 }
