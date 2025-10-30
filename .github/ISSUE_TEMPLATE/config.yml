@@ -1,8 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: 📖 Documentation
-    url: https://github.com/aceofaces/plex-playlists/tree/main/docs
-    about: Check the documentation for setup guides and troubleshooting
-  - name: 🔍 Search existing issues
-    url: https://github.com/aceofaces/plex-playlists/issues?q=is%3Aissue
-    about: Someone might have already reported your issue or requested your feature

